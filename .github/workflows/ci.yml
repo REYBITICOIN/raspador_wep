@@ -27,3 +27,4 @@ jobs:
           python-version: '3.12'
       - run: pip install -r services/api/requirements.txt
       - run: python -m compileall services/api/app
+      - run: python -m unittest -v tests/test_api.py
