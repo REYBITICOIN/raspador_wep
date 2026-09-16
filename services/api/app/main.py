@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:4173,http://127.0.0.1:4173"
     nvidia_api_key: str | None = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_model: str = "nvidia/nemotron-3-nano-30b-a3b"
+    nvidia_model: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
     xai_api_key: str | None = None
     xai_model: str | None = None
     default_model_provider: str = "nvidia"
@@ -113,7 +113,7 @@ Responda SOMENTE JSON válido neste formato:
 Não invente dados. Se a página for login, CAPTCHA ou verificação, use page_type=blocked e explique em warnings.
 CONTEÚDO:
 {page_text}"""
-    selected_model = (settings.nvidia_model or "").strip() or "nvidia/nemotron-3-nano-30b-a3b"
+    selected_model = (settings.nvidia_model or "").strip() or "nvidia/nemotron-3.5-lightning-30b-a3b"
     response = httpx.post(
         settings.nvidia_base_url.rstrip("/") + "/chat/completions",
         headers={"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"},
