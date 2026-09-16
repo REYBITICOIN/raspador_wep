@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import socket
+import json
+from pathlib import Path
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from threading import Lock
@@ -25,6 +27,7 @@ class Settings(BaseSettings):
     xai_model: str | None = None
     default_model_provider: str = "nvidia"
     allow_paid_models: bool = False
+    data_dir: str = "/app/data"
 
 
 settings = Settings()
@@ -36,8 +39,19 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
-jobs: dict[str, dict] = {}
+data_file = Path(settings.data_dir) / "jobs.json"
+data_file.parent.mkdir(parents=True, exist_ok=True)
+try:
+    jobs: dict[str, dict] = {item["id"]: item for item in json.loads(data_file.read_text(encoding="utf-8"))}
+except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+    jobs = {}
 jobs_lock = Lock()
+
+
+def save_jobs() -> None:
+    temporary = data_file.with_suffix(".tmp")
+    temporary.write_text(json.dumps(list(jobs.values()), ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(data_file)
 
 
 class JobRequest(BaseModel):
@@ -121,6 +135,7 @@ def create_job(request: JobRequest) -> dict:
     job = {"id": job_id, "url": target, "instruction": request.instruction.strip(), "provider": request.provider, "status": "running", "created_at": now_iso(), "completed_at": None, "result": None, "error": None}
     with jobs_lock:
         jobs[job_id] = job
+        save_jobs()
     try:
         with httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": "WebIntelligenceLab/0.2 (+authorized research)"}) as client:
             response = client.get(target)
@@ -134,4 +149,6 @@ def create_job(request: JobRequest) -> dict:
         job["error"] = str(exc)[:500]
     finally:
         job["completed_at"] = now_iso()
+        with jobs_lock:
+            save_jobs()
     return job
