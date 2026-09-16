@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     xai_model: str | None = None
     default_model_provider: str = "nvidia"
     allow_paid_models: bool = False
-    data_dir: str = "/app/data"
+    data_dir: str = "./data"
 
 
 settings = Settings()
