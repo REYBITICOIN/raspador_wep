@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     cors_origins: str = "http://localhost:4173,http://127.0.0.1:4173"
     nvidia_api_key: str | None = None
-    nvidia_model: str | None = None
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_model: str = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
     xai_api_key: str | None = None
     xai_model: str | None = None
     default_model_provider: str = "nvidia"
@@ -84,6 +85,45 @@ def extract_title(html: str) -> str | None:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", match.group(1))).strip()[:300]
 
 
+def html_to_text(html: str) -> str:
+    cleaned = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", html, flags=re.I | re.S)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()[:24000]
+
+
+def parse_json_answer(value: str) -> dict:
+    value = value.strip()
+    fence = chr(96) * 3
+    if value.startswith(fence):
+        value = value.removeprefix(fence + "json").removeprefix(fence).removesuffix(fence).strip()
+    start, end = value.find("{"), value.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("A NVIDIA não devolveu JSON válido")
+    return json.loads(value[start : end + 1])
+
+
+def extract_with_nvidia(page_text: str, instruction: str, source_url: str) -> dict:
+    if not settings.nvidia_api_key:
+        raise ValueError("A chave NVIDIA não está configurada no arquivo .env")
+    prompt = f"""Extraia dados comerciais apenas do conteúdo fornecido.
+URL: {source_url}
+Pedido do usuário: {instruction}
+Responda SOMENTE JSON válido neste formato:
+{{"page_type":"listing|product|blocked|other","summary":"","products":[{{"title":"","price":null,"currency":"BRL","url":"","image_url":"","availability":"","seller":""}}],"warnings":[]}}
+Não invente dados. Se a página for login, CAPTCHA ou verificação, use page_type=blocked e explique em warnings.
+CONTEÚDO:
+{page_text}"""
+    response = httpx.post(
+        settings.nvidia_base_url.rstrip("/") + "/chat/completions",
+        headers={"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"},
+        json={"model": settings.nvidia_model, "messages": [{"role": "system", "content": "Você é um extrator de dados preciso. Nunca invente campos ausentes."}, {"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 3000, "stream": False},
+        timeout=60,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return parse_json_answer(payload["choices"][0]["message"]["content"])
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "environment": settings.app_env, "version": app.version}
@@ -142,7 +182,17 @@ def create_job(request: JobRequest) -> dict:
             response.raise_for_status()
             if "text/html" not in response.headers.get("content-type", ""):
                 raise ValueError("O endereço não retornou uma página HTML")
-            job["result"] = {"title": extract_title(response.text), "final_url": str(response.url), "http_status": response.status_code, "bytes": len(response.content), "collector": "baseline-http", "note": "Coleta real concluída; Scrapling/ScrapeGraphAI entram na próxima etapa."}
+            final_url = str(response.url)
+            page_text = html_to_text(response.text)
+            is_blocked = any(marker in final_url.lower() or marker in page_text[:2000].lower() for marker in ["account-verification", "captcha", "access denied", "verifique sua identidade"])
+            actual_provider = "baseline"
+            extraction = None
+            if request.provider == "nvidia" or (request.provider == "auto" and settings.nvidia_api_key):
+                extraction = extract_with_nvidia(page_text, request.instruction, final_url)
+                actual_provider = "nvidia"
+            elif request.provider == "grok":
+                raise ValueError("A integração Grok ainda não está implementada")
+            job["result"] = {"title": extract_title(response.text), "final_url": final_url, "http_status": response.status_code, "bytes": len(response.content), "collector": "baseline-http", "actual_provider": actual_provider, "blocked": is_blocked, "extraction": extraction, "note": "A página redirecionou para verificação e não entregou os produtos." if is_blocked else ("Extração NVIDIA concluída." if extraction else "Conteúdo coletado; configure a NVIDIA para interpretação estruturada.")}
             job["status"] = "completed"
     except Exception as exc:
         job["status"] = "failed"
