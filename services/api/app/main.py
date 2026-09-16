@@ -113,13 +113,15 @@ Responda SOMENTE JSON válido neste formato:
 Não invente dados. Se a página for login, CAPTCHA ou verificação, use page_type=blocked e explique em warnings.
 CONTEÚDO:
 {page_text}"""
+    selected_model = (settings.nvidia_model or "").strip() or "nvidia/llama-3.3-nemotron-super-49b-v1.5"
     response = httpx.post(
         settings.nvidia_base_url.rstrip("/") + "/chat/completions",
         headers={"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"},
-        json={"model": settings.nvidia_model, "messages": [{"role": "system", "content": "Você é um extrator de dados preciso. Nunca invente campos ausentes."}, {"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 3000, "stream": False},
+        json={"model": selected_model, "messages": [{"role": "system", "content": "Você é um extrator de dados preciso. Nunca invente campos ausentes."}, {"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 3000, "stream": False},
         timeout=60,
     )
-    response.raise_for_status()
+    if response.is_error:
+        raise ValueError(f"NVIDIA HTTP {response.status_code}: {response.text[:600]}")
     payload = response.json()
     return parse_json_answer(payload["choices"][0]["message"]["content"])
 
