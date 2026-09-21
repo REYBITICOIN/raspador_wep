@@ -1,9 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  Activity, Bot, ChevronLeft, ChevronRight, Command, Database,
+  FlaskConical, History, LayoutDashboard, Menu, Search, ServerCog,
+  Settings, ShieldCheck, X
+} from "lucide-react";
 import "./styles.css";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8080";
-const views = ["Comando", "Laboratório", "Histórico", "Provedores", "Banco & segurança"];
+const navGroups = [
+  { label: "Operações", items: [
+    ["Comando", LayoutDashboard], ["Laboratório", FlaskConical], ["Histórico", History]
+  ]},
+  { label: "Inteligência", items: [
+    ["Provedores", Bot], ["Banco & segurança", Database]
+  ]}
+];
 
 async function request(path, options) {
   const response = await fetch(API + path, options);
@@ -26,6 +38,8 @@ function App() {
   const [provider, setProvider] = useState("auto");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNav, setMobileNav] = useState(false);
 
   async function refresh() {
     const [h, p, s, j] = await Promise.all([
@@ -54,13 +68,30 @@ function App() {
     ["IA ONLINE", providers.filter(p => p.enabled).length, "de 2 provedores"]
   ];
 
-  return <main>
-    <aside>
-      <div className="brand"><div className="mark">WI</div><div><b>WEB INTEL</b><small>RESEARCH GRID</small></div></div>
-      <nav>{views.map(item => <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>{item}</button>)}</nav>
-      <div className="core"><i className={health ? "live" : "dead"}/>{health ? "NÚCLEO " + health.version : "NÚCLEO DESCONECTADO"}</div>
+  return <main className={sidebarOpen ? "sidebar-open" : "sidebar-closed"}>
+    {mobileNav && <button className="nav-scrim" aria-label="Fechar menu" onClick={() => setMobileNav(false)} />}
+    <aside className={mobileNav ? "mobile-open" : ""}>
+      <div className="workspace">
+        <div className="mark">WI</div>
+        {sidebarOpen && <div className="workspace-copy"><b>WEB INTELLIGENCE</b><small>TOCA DA ONÇA · LAB</small></div>}
+        <button className="mobile-close" onClick={() => setMobileNav(false)} aria-label="Fechar"><X size={18}/></button>
+      </div>
+      {sidebarOpen && <button className="quick-search"><Search size={16}/><span>Pesquisar</span><kbd>⌘K</kbd></button>}
+      <nav>{navGroups.map(group => <div className="nav-group" key={group.label}>
+        {sidebarOpen && <label>{group.label}</label>}
+        {group.items.map(([item, Icon]) => <button title={item} key={item} className={view === item ? "active" : ""} onClick={() => {setView(item);setMobileNav(false)}}><Icon size={17}/>{sidebarOpen && <span>{item}</span>}</button>)}
+      </div>)}</nav>
+      <div className="aside-bottom">
+        <button className="settings-row"><Settings size={17}/>{sidebarOpen && <span>Configurações</span>}</button>
+        <div className="core"><i className={health ? "live" : "dead"}/>{sidebarOpen && (health ? "NÚCLEO " + health.version : "NÚCLEO DESCONECTADO")}</div>
+      </div>
     </aside>
     <section className="shell">
+      <div className="topbar">
+        <div className="topbar-left"><button className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={19}/></button><button className="collapse" onClick={() => setSidebarOpen(v => !v)}>{sidebarOpen ? <ChevronLeft size={18}/> : <ChevronRight size={18}/>}</button><span>Web Intelligence</span><b>/</b><strong>{view}</strong></div>
+        <div className="topbar-actions"><button><Search size={16}/><span>Pesquisar</span></button><div className={"avatar " + (health ? "online" : "offline")}>WI</div></div>
+      </div>
+      <div className="content">
       <header><div><p className="eyebrow">TOCA DA ONÇA · WEB INTELLIGENCE</p><h1>{view}</h1><p>Laboratório privado de coleta e inteligência comercial.</p></div><span className={"system " + (health ? "online" : "offline")}>● {health ? "SISTEMA ONLINE" : "SEM CONEXÃO"}</span></header>
       {error && <div className="alert"><b>ATENÇÃO</b><span>{error}</span><button onClick={() => setError("")}>×</button></div>}
 
@@ -77,6 +108,7 @@ function App() {
       {view === "Provedores" && <div className="columns providers"><article><p className="eyebrow">MODEL ROUTER</p><h2>Conexões de inteligência</h2><p>Uma API central seleciona o modelo, mas cada empresa usa sua própria chave.</p>{providers.map(p=><div className="provider" key={p.id}><div className={"logo "+p.id}>{p.id==="nvidia"?"N":"G"}</div><div><b>{p.id==="nvidia"?"NVIDIA NIM":"xAI · GROK"}</b><small>{p.model||"Modelo ainda não definido"}</small></div><span className={p.configured?"ok":"off"}>{p.configured?(p.enabled?"ATIVO":"BLOQUEADO"):"SEM CHAVE"}</span></div>)}</article><article><p className="eyebrow">COFRE DE SEGREDOS</p><h2>Configuração das APIs</h2><code>NVIDIA_API_KEY=••••••••</code><code>XAI_API_KEY=••••••••</code><p>As chaves ficam no servidor. O navegador recebe apenas o estado da conexão.</p><div className="guard">Grok permanece bloqueado enquanto <b>ALLOW_PAID_MODELS=false</b>.</div></article></div>}
 
       {view === "Banco & segurança" && <div className="columns security"><article><p className="eyebrow">SUPABASE</p><h2>PostgreSQL protegido</h2>{["Autenticação de usuários","RLS em todas as tabelas","Histórico e auditoria","Resultados e produtos","Métricas de modelos e custos"].map(x=><div className="check" key={x}>✓ <span>{x}</span></div>)}</article><article><p className="eyebrow">POLÍTICA DE DADOS</p><h2>Proteções ativas</h2><p>Nenhuma chave secreta chega ao navegador. Cada usuário acessa somente seus registros. Endereços internos são bloqueados pela API.</p><div className="shield"><b>RLS</b><small>DEFESA POR LINHA</small></div></article></div>}
+      </div>
     </section>
   </main>;
 }
