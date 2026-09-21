@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import socket
 import json
@@ -118,12 +119,48 @@ CONTEÚDO:
         settings.nvidia_base_url.rstrip("/") + "/chat/completions",
         headers={"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"},
         json={"model": selected_model, "messages": [{"role": "system", "content": "Você é um extrator de dados preciso. Nunca invente campos ausentes."}, {"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 3000, "stream": False},
-        timeout=60,
+        timeout=180,
     )
     if response.is_error:
         raise ValueError(f"NVIDIA HTTP {response.status_code}: {response.text[:600]}")
     payload = response.json()
     return parse_json_answer(payload["choices"][0]["message"]["content"])
+
+
+async def crawl_dynamic_page(target: str) -> dict:
+    try:
+        from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
+    except ImportError as exc:
+        raise ValueError("Crawl4AI ainda não está instalado. Execute INSTALAR_CRAWL4AI.ps1.") from exc
+
+    browser = BrowserConfig(
+        browser_type="chromium",
+        headless=True,
+        viewport_width=1440,
+        viewport_height=1000,
+        verbose=False,
+    )
+    run = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        page_timeout=90000,
+        delay_before_return_html=3.0,
+        scan_full_page=True,
+        remove_overlay_elements=True,
+    )
+    async with AsyncWebCrawler(config=browser) as crawler:
+        result = await crawler.arun(url=target, config=run)
+    if not result.success:
+        raise ValueError(f"Crawl4AI não conseguiu renderizar a página: {result.error_message or 'erro desconhecido'}")
+
+    markdown = getattr(result.markdown, "raw_markdown", result.markdown) if result.markdown else ""
+    metadata = result.metadata or {}
+    return {
+        "title": metadata.get("title"),
+        "final_url": result.url or target,
+        "http_status": result.status_code,
+        "html": result.html or "",
+        "text": str(markdown).strip()[:30000],
+    }
 
 
 @app.get("/health")
@@ -179,23 +216,28 @@ def create_job(request: JobRequest) -> dict:
         jobs[job_id] = job
         save_jobs()
     try:
-        with httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": "WebIntelligenceLab/0.2 (+authorized research)"}) as client:
-            response = client.get(target)
-            response.raise_for_status()
-            if "text/html" not in response.headers.get("content-type", ""):
-                raise ValueError("O endereço não retornou uma página HTML")
-            final_url = str(response.url)
-            page_text = html_to_text(response.text)
-            is_blocked = any(marker in final_url.lower() or marker in page_text[:2000].lower() for marker in ["account-verification", "captcha", "access denied", "verifique sua identidade"])
-            actual_provider = "baseline"
-            extraction = None
-            if request.provider == "nvidia" or (request.provider == "auto" and settings.nvidia_api_key):
-                extraction = extract_with_nvidia(page_text, request.instruction, final_url)
-                actual_provider = "nvidia"
-            elif request.provider == "grok":
-                raise ValueError("A integração Grok ainda não está implementada")
-            job["result"] = {"title": extract_title(response.text), "final_url": final_url, "http_status": response.status_code, "bytes": len(response.content), "collector": "baseline-http", "actual_provider": actual_provider, "blocked": is_blocked, "extraction": extraction, "note": "A página redirecionou para verificação e não entregou os produtos." if is_blocked else ("Extração NVIDIA concluída." if extraction else "Conteúdo coletado; configure a NVIDIA para interpretação estruturada.")}
-            job["status"] = "completed"
+        page = asyncio.run(crawl_dynamic_page(target))
+        final_url = page["final_url"]
+        page_text = page["text"]
+        if not page_text:
+            raise ValueError("O navegador abriu a página, mas nenhum conteúdo legível foi encontrado")
+        if page["http_status"] and page["http_status"] >= 400:
+            raise ValueError(f"A página respondeu HTTP {page['http_status']}")
+        is_blocked = any(marker in final_url.lower() or marker in page_text[:2000].lower() for marker in ["account-verification", "captcha", "access denied", "verifique sua identidade"])
+        actual_provider = "baseline"
+        extraction = None
+        if request.provider == "nvidia" or (request.provider == "auto" and settings.nvidia_api_key):
+            extraction = extract_with_nvidia(page_text, request.instruction, final_url)
+            actual_provider = "nvidia"
+        elif request.provider == "grok":
+            raise ValueError("A integração Grok ainda não está implementada")
+        products = extraction.get("products", []) if extraction else []
+        page_type = extraction.get("page_type") if extraction else None
+        empty_product_result = bool(extraction) and not products and page_type in {"product", "listing", "other"}
+        job["result"] = {"title": page["title"] or extract_title(page["html"]), "final_url": final_url, "http_status": page["http_status"], "bytes": len(page["html"].encode("utf-8")), "collector": "crawl4ai-playwright", "actual_provider": actual_provider, "blocked": is_blocked, "extraction": extraction, "note": "A página redirecionou para verificação e não entregou os produtos." if is_blocked else ("Crawl4AI renderizou a página e a NVIDIA concluiu a extração." if extraction and not empty_product_result else "A página foi renderizada, mas nenhum produto foi identificado.")}
+        job["status"] = "failed" if is_blocked or empty_product_result else "completed"
+        if empty_product_result:
+            job["error"] = "A coleta terminou sem localizar dados de produto; o resultado não foi aprovado."
     except Exception as exc:
         job["status"] = "failed"
         job["error"] = str(exc)[:500]

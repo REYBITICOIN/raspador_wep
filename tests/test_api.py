@@ -1,29 +1,19 @@
 import unittest
 from unittest.mock import patch
 
-import httpx
 from fastapi.testclient import TestClient
 
 from services.api.app.main import app, jobs
 
 
-class FakeHttpClient:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-    def get(self, url):
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/html"},
-            content=b"<html><head><title>Produto de Teste</title></head><body>ok</body></html>",
-            request=httpx.Request("GET", url),
-        )
+async def fake_crawl(url):
+    return {
+        "title": "Produto de Teste",
+        "final_url": url,
+        "http_status": 200,
+        "html": "<html><head><title>Produto de Teste</title></head><body>ok</body></html>",
+        "text": "Produto de Teste ok",
+    }
 
 
 class ApiFlowTest(unittest.TestCase):
@@ -32,7 +22,7 @@ class ApiFlowTest(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_health_and_complete_collection(self):
-        with patch("services.api.app.main.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), patch("services.api.app.main.httpx.Client", FakeHttpClient):
+        with patch("services.api.app.main.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), patch("services.api.app.main.crawl_dynamic_page", fake_crawl):
             response = self.client.post("/v1/jobs", json={"url": "https://example.com", "instruction": "Extraia o titulo", "provider": "auto"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["status"], "completed")
