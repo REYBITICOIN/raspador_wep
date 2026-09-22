@@ -15,3 +15,21 @@ aside nav{display:flex;flex-direction:column;gap:18px;margin-top:20px}.nav-group
 .aside-bottom{margin-top:auto;border-top:1px solid #15313d;padding-top:8px}.core{margin-top:0;padding:14px 9px 4px;border-top:0;white-space:nowrap}
 .shell{padding:0;max-width:none;min-width:0}.topbar{position:sticky;top:0;z-index:20;height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid #15313d;background:#061019e8;backdrop-filter:blur(16px)}.topbar-left,.topbar-actions{display:flex;align-items:center;gap:10px}.topbar-left{color:#64838e;font-size:12px}.topbar-left strong{color:#dff8fc;font-weight:600}.topbar-left button,.topbar-actions button{display:flex;align-items:center;gap:8px;padding:7px 9px;color:#7896a0;border:1px solid #193944;border-radius:7px;background:#08151d}.topbar-actions button span{font-size:11px}.avatar{width:32px;height:32px;display:grid;place-items:center;border:1px solid;border-radius:50%;font-size:9px;font-weight:800}.content{padding:38px clamp(24px,5vw,70px);max-width:1550px;margin:auto}.mobile-menu,.mobile-close,.nav-scrim{display:none!important}
 @media(max-width:700px){main,main.sidebar-closed{display:block}.shell{width:100%}aside{position:fixed;left:-280px;top:0;z-index:60;width:260px;height:100vh;transition:left .25s ease}aside.mobile-open{left:0}.mobile-open .workspace-copy{display:block}.mobile-close{display:grid!important;place-items:center;margin-left:auto;color:#8ba8b1;border:0;background:transparent}.nav-scrim{display:block!important;position:fixed;inset:0;z-index:50;border:0;background:#000a}.mobile-menu{display:flex!important}.collapse{display:none!important}.topbar{padding:0 14px}.topbar-actions button{display:none}.content{padding:24px 16px}}
+
+
+/* Visual live agent execution */
+.execution-layout{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;margin-top:30px}
+.execution-board .title button{height:max-content;padding:11px 14px;border:0;background:#22d8f2;color:#031218;font-weight:800;font-size:10px}
+.agent-node{display:grid;grid-template-columns:48px 1fr auto;align-items:center;gap:14px;position:relative;padding:14px 0;border-bottom:1px solid #15343f;transition:.25s}
+.agent-node:after{content:"";position:absolute;left:23px;bottom:-10px;width:1px;height:20px;background:#214550}
+.node-number{width:44px;height:44px;display:grid;place-items:center;border:1px solid #244653;color:#6c8b95;font-weight:800}
+.node-copy b,.node-copy small{display:block}.node-copy small{margin-top:5px;color:#63838e;font-size:11px}
+.node-state{font-size:9px;letter-spacing:1px;color:#698791}.agent-node.working{padding-left:9px;background:#082b364f}.agent-node.working .node-number{color:#50e7ff;border-color:#26c9e6;box-shadow:0 0 22px #22d9ff55;animation:pulseAgent 1s infinite}.agent-node.working .node-state{color:#50e7ff}
+.agent-node.completed .node-number{color:#5bf1aa;border-color:#277757}.agent-node.completed .node-state{color:#5bf1aa}
+.agent-node.blocked{background:#35151b66}.agent-node.blocked .node-number,.agent-node.blocked .node-state{color:#ff8291;border-color:#7a3542}.agent-node.paused{opacity:.48}
+@keyframes pulseAgent{50%{box-shadow:0 0 35px #22d9ff99;transform:scale(1.04)}}
+.product-stage{min-height:560px}.live-product{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center;margin:22px 0}.live-product img{width:180px;height:180px;object-fit:contain;background:#fff}.live-product strong,.live-product small{display:block}.live-product strong{color:#5bf1aa;font-size:24px}.live-product small{color:#7896a0;margin-top:10px}
+.prepared-gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.prepared-gallery img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff}
+.publish-lock{display:grid;gap:6px;margin-top:18px;padding:15px;border:1px solid #7a3542;background:#35151b;color:#ff9eaa}.publish-lock span{font-size:11px;color:#d99aa3}.run-button{margin-left:8px}
+@media(max-width:1000px){.execution-layout{grid-template-columns:1fr}}
+@media(max-width:600px){.agent-node{grid-template-columns:42px 1fr}.node-state{grid-column:2}.live-product{grid-template-columns:1fr}.live-product img{width:100%;height:auto}}

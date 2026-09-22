@@ -10,7 +10,7 @@ import "./styles.css";
 const API = import.meta.env.VITE_API_URL || "http://localhost:8080";
 const navGroups = [
   { label: "Operações", items: [
-    ["Comando", LayoutDashboard], ["Laboratório", FlaskConical], ["Histórico", History]
+    ["Comando", LayoutDashboard], ["Execução", Command], ["Laboratório", FlaskConical], ["Histórico", History]
   ]},
   { label: "Comércio", items: [
     ["Catálogo", Package], ["Agentes", Activity], ["Canais", Store], ["Publicações", Send]
@@ -47,6 +47,7 @@ function App() {
   const [catalog, setCatalog] = useState([]);
   const [agents, setAgents] = useState([]);
   const [mediaResult, setMediaResult] = useState(null);
+  const [pipelineRun, setPipelineRun] = useState(null);
   const [importUrl, setImportUrl] = useState("");
 
   async function refresh() {
@@ -85,6 +86,52 @@ function App() {
       const result = await request("/v1/media/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: productId, size: 1200, quality: 94 }) });
       setMediaResult(result);
     } catch (e) { setError(e.message); } finally { setLoading(false); }
+  }
+
+  async function runVisiblePipeline(product) {
+    const steps = agents.map(agent => ({
+      ...agent, runState: "waiting", message: "Aguardando a etapa anterior"
+    }));
+    const update = (stage, runState, message, extra = {}) => {
+      setPipelineRun(current => ({
+        ...current,
+        ...extra,
+        steps: current.steps.map(step =>
+          step.stage === stage ? {...step, runState, message} : step
+        )
+      }));
+    };
+    setView("Execução");
+    setError("");
+    setPipelineRun({product, steps, images: [], startedAt: new Date().toISOString()});
+    await new Promise(resolve => setTimeout(resolve, 350));
+    update(1, "working", "Lendo o produto do catálogo central");
+    await new Promise(resolve => setTimeout(resolve, 500));
+    update(1, "completed", "Produto carregado da fonte autorizada");
+    update(2, "working", "Conferindo título, preço, estoque, SKU e imagens");
+    await new Promise(resolve => setTimeout(resolve, 600));
+    const missing = ["title", "price", "stock", "images"].filter(key => !product[key] && product[key] !== 0);
+    if (missing.length) {
+      update(2, "blocked", "Campos ausentes: " + missing.join(", "));
+      return;
+    }
+    update(2, "completed", "Dados comerciais conferidos");
+    update(3, "working", "Recortando, centralizando e melhorando as imagens");
+    try {
+      const media = await request("/v1/media/prepare", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({product_id: product.id, size: 1200, quality: 94})
+      });
+      setMediaResult(media);
+      update(3, "completed", media.prepared_count + " imagens prontas em 1200×1200", {
+        images: media.prepared
+      });
+      update(4, "blocked", "Aguardando medidas reais do fornecedor");
+      [5,6,7,8,9].forEach(stage => update(stage, "paused", "Pausado: a etapa 4 precisa ser resolvida"));
+    } catch (e) {
+      update(3, "blocked", e.message);
+      setError(e.message);
+    }
   }
 
   const cards = [
@@ -127,6 +174,30 @@ function App() {
         <article><p className="eyebrow">ATIVIDADE RECENTE</p>{jobs.slice(0,5).map(job => <div className="jobline" key={job.id} onClick={() => {setSelected(job);setView("Histórico")}}><div><b>{job.result?.title || new URL(job.url).hostname}</b><small>{new Date(job.created_at).toLocaleString("pt-BR")}</small></div><Badge status={job.status}/></div>)}{!jobs.length && <div className="empty">Nenhuma missão executada.</div>}</article></div>
       </>}
 
+      {view === "Execução" && <div className="execution-layout">
+        <article className="execution-board">
+          <div className="title"><div><p className="eyebrow">OPERAÇÃO AO VIVO</p><h2>Fluxo visual dos agentes</h2></div>
+            {!pipelineRun && catalog[0] && <button onClick={()=>runVisiblePipeline(catalog[0])}>EXECUTAR PRODUTO</button>}
+          </div>
+          {!pipelineRun && <div className="empty">Clique em EXECUTAR PRODUTO para acompanhar cada etapa trabalhando.</div>}
+          {pipelineRun?.steps.map(step=><div className={"agent-node "+step.runState} key={step.id}>
+            <div className="node-number">{String(step.stage).padStart(2,"0")}</div>
+            <div className="node-copy"><b>{step.name}</b><small>{step.message}</small></div>
+            <span className="node-state">{step.runState==="working"?"TRABALHANDO":step.runState==="completed"?"CONCLUÍDO":step.runState==="blocked"?"BLOQUEADO":step.runState==="paused"?"PAUSADO":"AGUARDANDO"}</span>
+          </div>)}
+        </article>
+        <article className="product-stage"><p className="eyebrow">PRODUTO EM PROCESSAMENTO</p>
+          {pipelineRun?<><h2>{pipelineRun.product.title}</h2>
+            <div className="live-product">
+              <img src={pipelineRun.images?.[0]?API+pipelineRun.images[0].url:pipelineRun.product.images?.[0]} alt="Produto"/>
+              <div><strong>{new Intl.NumberFormat("pt-BR",{style:"currency",currency:pipelineRun.product.currency||"BRL"}).format(pipelineRun.product.price||0)}</strong><small>Estoque: {pipelineRun.product.stock}</small><small>SKU: {pipelineRun.product.sku||"não informado"}</small></div>
+            </div>
+            {pipelineRun.images?.length>0&&<div className="prepared-gallery">{pipelineRun.images.map(image=><img key={image.url} src={API+image.url} alt="Imagem preparada"/>)}</div>}
+            <div className="publish-lock"><b>MERCADO LIVRE: NÃO PUBLICADO</b><span>Faltam medidas/categoria e autorização OAuth oficial.</span></div>
+          </>:<div className="empty">O produto aparecerá aqui durante a execução.</div>}
+        </article>
+      </div>}
+
       {view === "Laboratório" && <div className="columns lab"><article><p className="eyebrow">NOVA MISSÃO</p><h2>Configurar coleta</h2><form onSubmit={submit}><label>URL pública autorizada<input type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://exemplo.com/produto" required/></label><label>Objetivo da extração<textarea value={instruction} onChange={e=>setInstruction(e.target.value)} minLength="5" required/></label><label>Rota de inteligência<select value={provider} onChange={e=>setProvider(e.target.value)}><option value="auto">Automática e econômica</option><option value="nvidia">NVIDIA</option><option value="grok">Grok — requer autorização</option></select></label><div className="guard">◈ URLs privadas são bloqueadas. CAPTCHA, login e proteções não serão contornados.</div><button disabled={loading}>{loading ? "COLETANDO..." : "INICIAR COLETA"}</button></form></article><article className="pipeline"><p className="eyebrow">PIPELINE</p>{["Validação de segurança","Captura real da página","Extração estruturada","Registro no banco","Auditoria e evidências"].map((x,i)=><div key={x}><span>{String(i+1).padStart(2,"0")}</span><b>{x}</b></div>)}</article></div>}
 
       {view === "Histórico" && <div className="columns history"><article><div className="title"><div><p className="eyebrow">MISSÕES</p><h2>Histórico de coletas</h2></div><button className="ghost" onClick={()=>refresh().catch(e=>setError(e.message))}>ATUALIZAR</button></div>{jobs.map(job=><div className={"jobrow "+(selected?.id===job.id?"selected":"")} key={job.id} onClick={()=>setSelected(job)}><div><b>{job.result?.title || new URL(job.url).hostname}</b><small>{job.url}</small></div><Badge status={job.status}/><time>{new Date(job.created_at).toLocaleDateString("pt-BR")}</time></div>)}{!jobs.length&&<div className="empty">Seu histórico aparecerá aqui.</div>}</article><article className="detail"><p className="eyebrow">EVIDÊNCIA</p>{selected?<><h2>{selected.result?.title||"Coleta sem título"}</h2><Badge status={selected.status}/>{selected.result?.blocked&&<div className="errorbox">A página bloqueou a coleta com verificação. Nenhum produto foi recebido.</div>}<dl><dt>URL</dt><dd>{selected.url}</dd><dt>Solicitado</dt><dd>{selected.provider}</dd><dt>Usado</dt><dd>{selected.result?.actual_provider||"—"}</dd><dt>HTTP</dt><dd>{selected.result?.http_status||"—"}</dd></dl>{selected.error&&<div className="errorbox">{selected.error}</div>}{selected.result?.extraction?.products?.length>0?<div className="products">{selected.result.extraction.products.map((product,i)=><div className="product" key={i}>{product.image_url&&<img src={product.image_url} alt=""/>}<div><b>{product.title}</b><strong>{product.price?new Intl.NumberFormat("pt-BR",{style:"currency",currency:product.currency||"BRL"}).format(product.price):"Preço não informado"}</strong><small>{product.seller||product.availability}</small></div></div>)}</div>:<p>{selected.result?.note}</p>}<pre>{JSON.stringify(selected.result?.extraction||selected.result,null,2)}</pre></>:<div className="empty">Selecione uma missão.</div>}</article></div>}
@@ -144,7 +215,7 @@ function App() {
           <div className="guard">O produto entra primeiro no catálogo. Nada é publicado automaticamente.</div>
         </article>
         <article><p className="eyebrow">PRODUTOS</p><h2>{catalog.length} item(ns)</h2>
-          {catalog.map(product=><div className="product" key={product.id}>{product.images?.[0]&&<img src={product.images[0]} alt=""/>}<div><b>{product.title}</b><strong>{new Intl.NumberFormat("pt-BR",{style:"currency",currency:product.currency||"BRL"}).format(product.price||0)}</strong><small>Estoque: {product.stock} · {product.sku||"sem SKU"}</small><button className="ghost" disabled={loading} onClick={()=>prepareProductImages(product.id)}>PREPARAR IMAGENS</button></div></div>)}
+          {catalog.map(product=><div className="product" key={product.id}>{product.images?.[0]&&<img src={product.images[0]} alt=""/>}<div><b>{product.title}</b><strong>{new Intl.NumberFormat("pt-BR",{style:"currency",currency:product.currency||"BRL"}).format(product.price||0)}</strong><small>Estoque: {product.stock} · {product.sku||"sem SKU"}</small><button className="ghost" disabled={loading} onClick={()=>prepareProductImages(product.id)}>PREPARAR IMAGENS</button><button className="ghost run-button" disabled={loading} onClick={()=>runVisiblePipeline(product)}>VER AGENTES TRABALHANDO</button></div></div>)}
           {!catalog.length&&<div className="empty">Importe o primeiro produto da loja.</div>}
           {mediaResult&&<div className="guard">✓ {mediaResult.prepared_count} imagem(ns) preparada(s) pelo Curador. Aprovação visual obrigatória antes da publicação.</div>}
         </article>
