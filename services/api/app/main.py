@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .commerce import router as commerce_router
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -33,7 +35,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-app = FastAPI(title="Web Intelligence Lab API", version="0.2.0")
+app = FastAPI(title="Toca Commerce OS API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[item.strip() for item in settings.cors_origins.split(",")],
@@ -41,6 +43,8 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
+app.include_router(commerce_router)
+
 data_file = Path(settings.data_dir) / "jobs.json"
 data_file.parent.mkdir(parents=True, exist_ok=True)
 try:

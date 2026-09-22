@@ -4,23 +4,22 @@ Laboratório independente de inteligência web da Toca da Onça.
 
 ## Objetivo
 
-Testar, em ambiente isolado:
+Commerce OS da Toca da Onça para:
 
-- Scrapling para coleta de páginas públicas autorizadas;
-- ScrapeGraphAI para interpretação e extração estruturada;
-- roteamento entre Ollama/Qwen e NVIDIA;
-- Grok somente quando houver autorização explícita de custo;
-- banco de dados e autenticação em uma instalação Supabase isolada;
-- dashboard próprio para criar testes e consultar resultados.
+- manter um catálogo central de produtos;
+- importar produtos da loja própria;
+- preparar, publicar e sincronizar anúncios em marketplaces por APIs oficiais;
+- operar Mercado Livre, Shopee, Amazon e Meta por conectores independentes;
+- acompanhar preço, estoque, concorrência, tendências e desempenho;
+- usar navegador automatizado somente quando uma operação não possuir API adequada.
 
-## Limites da fase inicial
+## Segurança operacional
 
-- Não integra com TOCA_JARVIS_MASTER.
-- Não publica nem executa ações no Facebook ou Instagram.
-- Não usa APIs pagas sem autorização.
-- Não contorna CAPTCHA, autenticação ou controles de acesso.
-- Não armazena tokens, cookies, senhas ou chaves no Git.
-- Não será exposto em subdomínio antes dos testes locais e aprovação.
+- Toda publicação passa por prévia, validação e aprovação.
+- Segredos e tokens ficam somente no backend.
+- CAPTCHA, autenticação e controles de acesso não são contornados.
+- APIs pagas exigem autorização explícita.
+- O protótipo antigo permanece preservado na branch de arquivo.
 
 ## Arquitetura planejada
 

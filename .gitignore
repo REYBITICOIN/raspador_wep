@@ -16,7 +16,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.venv/
+.venv*/
 venv/
 
 # Node
@@ -33,6 +33,8 @@ logs/
 backups/
 playwright-report/
 test-results/
+.local-processes.json
+.commerce-process.json
 
 # Editors and OS
 .vscode/

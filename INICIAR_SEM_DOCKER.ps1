@@ -41,13 +41,13 @@ if (-not (Test-Path ".env")) {
 
 New-Item -ItemType Directory -Path "data" -Force | Out-Null
 
-if (-not (Test-Path ".venv\Scripts\python.exe")) {
-    Write-Host "Criando ambiente Python..." -ForegroundColor Cyan
-    if ($pythonCommand -eq "py") { & py -3 -m venv .venv } else { & python -m venv .venv }
+if (-not (Test-Path ".venv312\Scripts\python.exe")) {
+    Write-Host "Criando ambiente Python 3.12..." -ForegroundColor Cyan
+    if ($pythonCommand -eq "py") { & py -3.12 -m venv .venv312 } else { & python -m venv .venv312 }
 }
 
 Write-Host "Instalando dependencias leves do backend..." -ForegroundColor Cyan
-& ".\.venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q -r "services\api\requirements.txt"
+& ".\.venv312\Scripts\python.exe" -m pip install --disable-pip-version-check -q -r "services\api\requirements.txt"
 if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar dependencias Python." }
 
 Write-Host "Instalando dependencias do painel..." -ForegroundColor Cyan
@@ -57,7 +57,7 @@ $npmExit = $LASTEXITCODE
 Pop-Location
 if ($npmExit -ne 0) { throw "Falha ao instalar dependencias do painel." }
 
-$backend = Start-Process -FilePath "$Project\.venv\Scripts\python.exe" -ArgumentList "-m","uvicorn","services.api.app.main:app","--host","127.0.0.1","--port","8080" -WorkingDirectory $Project -PassThru
+$backend = Start-Process -FilePath "$Project\.venv312\Scripts\python.exe" -ArgumentList "-m","uvicorn","services.api.app.main:app","--host","127.0.0.1","--port","8080" -WorkingDirectory $Project -PassThru
 $frontend = Start-Process -FilePath "cmd.exe" -ArgumentList "/c","npm.cmd run dev -- --host 127.0.0.1 --port 4173" -WorkingDirectory "$Project\apps\dashboard" -PassThru
 @{ backend = $backend.Id; frontend = $frontend.Id } | ConvertTo-Json | Set-Content ".local-processes.json" -Encoding UTF8
 

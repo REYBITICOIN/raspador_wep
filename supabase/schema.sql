@@ -142,3 +142,72 @@ grant usage on schema public to authenticated;
 grant select, insert, update, delete on public.profiles, public.sources, public.crawl_jobs, public.pages, public.extractions, public.products, public.provider_settings to authenticated;
 grant select on public.model_runs, public.audit_logs to authenticated;
 
+
+
+-- Commerce OS: contas conectadas aos canais
+create table public.channel_accounts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  channel text not null check (channel in ('mercadolivre','shopee','amazon','meta')),
+  external_user_id text,
+  status text not null default 'disconnected',
+  scopes text[] not null default '{}',
+  token_expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(user_id, channel)
+);
+
+create table public.marketplace_listings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete cascade,
+  channel text not null,
+  external_item_id text,
+  status text not null default 'draft',
+  payload jsonb not null default '{}'::jsonb,
+  channel_response jsonb not null default '{}'::jsonb,
+  last_synced_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.sync_events (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  listing_id uuid references public.marketplace_listings(id) on delete cascade,
+  direction text not null check (direction in ('outbound','inbound')),
+  event_type text not null,
+  status text not null,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index channel_accounts_user_idx on public.channel_accounts(user_id);
+create index marketplace_listings_user_status_idx
+  on public.marketplace_listings(user_id, status);
+create index sync_events_user_created_idx
+  on public.sync_events(user_id, created_at desc);
+alter table public.channel_accounts enable row level security;
+alter table public.marketplace_listings enable row level security;
+alter table public.sync_events enable row level security;
+
+create policy channel_accounts_owner_all
+  on public.channel_accounts for all to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+create policy marketplace_listings_owner_all
+  on public.marketplace_listings for all to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+create policy sync_events_owner_select
+  on public.sync_events for select to authenticated
+  using ((select auth.uid()) = user_id);
+
+grant select, insert, update, delete
+  on public.channel_accounts, public.marketplace_listings
+  to authenticated;
+grant select on public.sync_events to authenticated;
+grant usage, select on sequence public.sync_events_id_seq to authenticated;
