@@ -30,7 +30,7 @@ async function request(path, options) {
 const Badge = ({ status }) => <span className={"badge " + status}>{status}</span>;
 
 function App() {
-  const [view, setView] = useState("Comando");
+  const [view, setView] = useState("Execução");
   const [health, setHealth] = useState(null);
   const [providers, setProviders] = useState([]);
   const [stats, setStats] = useState({ total_jobs: 0, completed: 0, failed: 0, pages: 0 });
