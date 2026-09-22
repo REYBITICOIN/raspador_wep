@@ -20,6 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .agents import MEDIA_DIR, router as agents_router
 from .commerce import router as commerce_router
+from .seo_agents import router as seo_router
 
 
 class Settings(BaseSettings):
@@ -47,6 +48,7 @@ app.add_middleware(
 )
 app.include_router(commerce_router)
 app.include_router(agents_router)
+app.include_router(seo_router)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 data_file = Path(settings.data_dir) / "jobs.json"

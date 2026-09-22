@@ -35,3 +35,20 @@ aside nav{display:flex;flex-direction:column;gap:18px;margin-top:20px}.nav-group
 @media(max-width:600px){.agent-node{grid-template-columns:42px 1fr}.node-state{grid-column:2}.live-product{grid-template-columns:1fr}.live-product img{width:100%;height:auto}}
 
 .agent-node.attention{background:#2d220b66}.agent-node.attention .node-number,.agent-node.attention .node-state{color:#ffc766;border-color:#8a6425}
+
+.ad-proposal{margin-top:22px;padding:20px;border:1px solid #1c6673;background:#071820}
+.ad-proposal label{display:block;margin-top:16px;color:#5dcce5;font-size:10px;letter-spacing:.16em}
+.ad-proposal h3{font-size:22px;line-height:1.25;margin:7px 0;color:#f2fbfc}
+.original-title{color:#7e9aa1;margin:6px 0;text-decoration:line-through}
+.keyword-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+.keyword-list span{border:1px solid #246172;background:#0a2730;padding:6px 8px;color:#bcecf3;font-size:11px}
+.proposal-description{white-space:pre-wrap;max-height:270px;overflow:auto;margin-top:8px;padding:13px;border:1px solid #17434d;color:#cbdde1;font-size:13px;line-height:1.55}
+.review-ok,.review-warning{margin-top:15px;padding:11px;font-size:12px}
+.review-ok{border:1px solid #187750;color:#58e9a1;background:#09251d}
+.review-warning{border:1px solid #914052;color:#ff9aae;background:#35151d}
+.research-note{display:block;margin-top:12px;color:#6d8c94;line-height:1.45}
+.approval-actions{display:flex;gap:10px;margin-top:18px}
+.approval-actions button{flex:1}.approval-actions .reject{border-color:#914052;color:#ff9aae;background:#35151d}
+.approval-result{margin-top:18px;padding:12px;text-align:center;font-weight:800;letter-spacing:.08em}
+.approval-result.approved{border:1px solid #187750;color:#58e9a1}
+.approval-result.rejected{border:1px solid #914052;color:#ff9aae}

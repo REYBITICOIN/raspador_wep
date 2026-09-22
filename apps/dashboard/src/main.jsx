@@ -48,6 +48,7 @@ function App() {
   const [agents, setAgents] = useState([]);
   const [mediaResult, setMediaResult] = useState(null);
   const [pipelineRun, setPipelineRun] = useState(null);
+  const [seoDraft, setSeoDraft] = useState(null);
   const [importUrl, setImportUrl] = useState("");
 
   async function refresh() {
@@ -89,68 +90,84 @@ function App() {
   }
 
   async function runVisiblePipeline(product) {
-    const steps = agents.map(agent => ({
-      ...agent, runState: "waiting", message: "Aguardando a etapa anterior"
+    const steps = agents.map(agent => ({...agent, runState: "waiting", message: "Aguardando a etapa anterior"}));
+    const update = (stage, runState, message, extra = {}) => setPipelineRun(current => ({
+      ...current, ...extra,
+      steps: current.steps.map(step => step.stage === stage ? {...step, runState, message} : step)
     }));
-    const update = (stage, runState, message, extra = {}) => {
-      setPipelineRun(current => ({
-        ...current,
-        ...extra,
-        steps: current.steps.map(step =>
-          step.stage === stage ? {...step, runState, message} : step
-        )
-      }));
-    };
-    setView("Execução");
-    setError("");
+    setView("Execução"); setError(""); setSeoDraft(null);
     setPipelineRun({product, steps, images: [], startedAt: new Date().toISOString()});
-    await new Promise(resolve => setTimeout(resolve, 350));
+    await new Promise(resolve => setTimeout(resolve, 300));
     update(1, "working", "Lendo o produto do catálogo central");
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 350));
     update(1, "completed", "Produto carregado da fonte autorizada");
     update(2, "working", "Conferindo título, preço, estoque, SKU e imagens");
-    await new Promise(resolve => setTimeout(resolve, 600));
     const missing = ["title", "price", "stock", "images"].filter(key => !product[key] && product[key] !== 0);
-    if (missing.length) {
-      update(2, "blocked", "Campos ausentes: " + missing.join(", "));
-      return;
-    }
+    if (missing.length) { update(2, "blocked", "Campos ausentes: " + missing.join(", ")); return; }
     update(2, "completed", "Dados comerciais conferidos");
-    update(3, "working", "Recortando, centralizando e melhorando as imagens");
     try {
+      update(3, "working", "Recortando, centralizando e removendo metadados");
       const media = await request("/v1/media/prepare", {
         method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({product_id: product.id, size: 1200, quality: 94})
       });
       setMediaResult(media);
-      update(3, "completed", media.prepared_count + " imagens prontas, metadados removidos", { images: media.prepared });
-      update(4, "working", "Lendo tamanho, grade e medidas na ficha do produto");
+      update(3, "completed", media.prepared_count + " imagens prontas em 1200×1200", {images: media.prepared});
+
+      update(4, "working", "Lendo tamanho, grade e medidas na fonte");
       const profile = await request("/v1/catalog/products/" + product.id + "/size-profile");
       if (profile.state === "ready") {
-        const chart = await request("/v1/media/size-chart/auto", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({product_id: product.id}) });
-        update(4, "completed", "Tabela criada com dado explícito da fonte", { images: [...media.prepared, {url: chart.url}] });
-        update(5, "paused", "Tabela pronta; aguardando revisão humana para continuar");
-      } else {
-        update(4, "attention", profile.evidence + " A tabela ficou pendente, mas o fluxo continuará.");
-        update(5, "working", "Revisando título e descrição sem inventar informações");
-        await new Promise(resolve => setTimeout(resolve, 700));
-        update(5, "completed", "Texto original preservado; nenhuma informação foi inventada");
-        update(6, "working", "Verificando disponibilidade do auditor SEO");
-        await new Promise(resolve => setTimeout(resolve, 550));
-        update(6, "attention", "SEOMonster instalado; autenticação Google ainda pendente");
-        update(7, "working", "Montando e validando a prévia do Mercado Livre");
-        const preview = await request("/v1/channels/mercadolivre/preview", {
+        const chart = await request("/v1/media/size-chart/auto", {
           method: "POST", headers: {"Content-Type": "application/json"},
           body: JSON.stringify({product_id: product.id})
         });
-        update(7, preview.ready ? "completed" : "attention", preview.ready ? "Prévia aprovada" : "Prévia criada; falta: " + preview.missing.join(", "));
-        update(8, "blocked", "Publicação real aguarda categoria e OAuth oficial");
-        update(9, "paused", "Monitor inicia depois que existir anúncio publicado");
+        update(4, "completed", "Tabela criada somente com medidas comprovadas", {images: [...media.prepared, {url: chart.url}]});
+      } else {
+        update(4, "attention", profile.evidence + " Nenhuma medida foi inventada.");
       }
+
+      update(5, "working", "Consultando sugestões reais de busca do Google");
+      const draft = await request("/v1/seo/drafts", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({product_id: product.id, channel: "mercadolivre"})
+      });
+      setSeoDraft(draft);
+      update(5, "completed", draft.research.keywords.length + " palavras candidatas encontradas");
+      update(6, "completed", "Título e descrição específicos para Mercado Livre foram montados");
+      update(7, draft.review.passed ? "completed" : "attention",
+        draft.review.passed ? "Revisão factual aprovada: sem atributos inventados" : "Revisão encontrou: " + draft.review.warnings.join("; "));
+      update(8, "attention", "Aguardando Carlos aprovar ou rejeitar o anúncio abaixo");
+
+      update(9, "working", "Validando requisitos técnicos do Mercado Livre");
+      const preview = await request("/v1/channels/mercadolivre/preview", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({product_id: product.id})
+      });
+      update(9, preview.ready ? "completed" : "attention",
+        preview.ready ? "Prévia técnica aprovada" : "Ainda falta: " + preview.missing.join(", "));
+      update(10, "blocked", "Bloqueado até sua aprovação, categoria e OAuth oficial");
+      update(11, "paused", "Monitor começa somente depois da publicação");
     } catch (e) {
-      update(3, "blocked", e.message);
+      const active = pipelineRun?.steps?.find(step => step.runState === "working");
+      update(active?.stage || 5, "blocked", e.message);
       setError(e.message);
     }
+  }
+
+  async function decideDraft(decision) {
+    if (!seoDraft) return;
+    setLoading(true); setError("");
+    try {
+      const updated = await request("/v1/seo/drafts/" + seoDraft.id + "/decision", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({decision, note: decision === "approved" ? "Aprovado por Carlos no painel" : "Rejeitado por Carlos no painel"})
+      });
+      setSeoDraft(updated);
+      setPipelineRun(current => ({...current, steps: current.steps.map(step =>
+        step.stage === 8 ? {...step, runState: decision === "approved" ? "completed" : "blocked",
+          message: decision === "approved" ? "Anúncio aprovado por Carlos" : "Anúncio rejeitado; não será publicado"} : step
+      )}));
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
   }
 
   const cards = [
@@ -212,7 +229,23 @@ function App() {
               <div><strong>{new Intl.NumberFormat("pt-BR",{style:"currency",currency:pipelineRun.product.currency||"BRL"}).format(pipelineRun.product.price||0)}</strong><small>Estoque: {pipelineRun.product.stock}</small><small>SKU: {pipelineRun.product.sku||"não informado"}</small></div>
             </div>
             {pipelineRun.images?.length>0&&<div className="prepared-gallery">{pipelineRun.images.map(image=><img key={image.url} src={API+image.url} alt="Imagem preparada"/>)}</div>}
-            <div className="publish-lock"><b>MERCADO LIVRE: NÃO PUBLICADO</b><span>Faltam medidas/categoria e autorização OAuth oficial.</span></div>
+            {seoDraft&&<section className="ad-proposal">
+              <p className="eyebrow">ANÚNCIO PROPOSTO · {seoDraft.channel.toUpperCase()}</p>
+              <label>TÍTULO ORIGINAL</label><p className="original-title">{pipelineRun.product.title}</p>
+              <label>NOVO TÍTULO</label><h3>{seoDraft.proposal.title}</h3>
+              <label>PALAVRAS ENCONTRADAS EM BUSCAS REAIS</label>
+              <div className="keyword-list">{seoDraft.research.keywords.slice(0,12).map(word=><span key={word}>{word}</span>)}</div>
+              <label>DESCRIÇÃO PROPOSTA</label><div className="proposal-description">{seoDraft.proposal.description}</div>
+              <div className={seoDraft.review.passed?"review-ok":"review-warning"}>
+                {seoDraft.review.passed?"✓ Revisor factual: nenhuma informação inventada detectada.":"⚠ "+seoDraft.review.warnings.join(" · ")}
+              </div>
+              <small className="research-note">Pesquisa: Google Autocomplete, núcleo gratuito compatível com serp_adjacency_expand do SEOMonster. Volume exato depende da conexão Google Ads/Search Console.</small>
+              {seoDraft.approval.state==="pending"?<div className="approval-actions">
+                <button disabled={loading||!seoDraft.review.passed} onClick={()=>decideDraft("approved")}>APROVAR ANÚNCIO</button>
+                <button className="reject" disabled={loading} onClick={()=>decideDraft("rejected")}>REJEITAR</button>
+              </div>:<div className={"approval-result "+seoDraft.approval.state}>{seoDraft.approval.state==="approved"?"APROVADO POR CARLOS":"REJEITADO POR CARLOS"}</div>}
+            </section>}
+            <div className="publish-lock"><b>MERCADO LIVRE: NÃO PUBLICADO</b><span>{seoDraft?.approval.state==="approved"?"Anúncio aprovado; ainda faltam categoria e OAuth oficial.":"A publicação está bloqueada até sua aprovação, categoria e OAuth oficial."}</span></div>
           </>:<div className="empty">O produto aparecerá aqui durante a execução.</div>}
         </article>
       </div>}
