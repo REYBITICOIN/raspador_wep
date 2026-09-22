@@ -23,7 +23,7 @@ const navGroups = [
 async function request(path, options) {
   const response = await fetch(API + path, options);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "Falha na comunicação com o backend");
+  if (!response.ok) { const detail=data.detail; throw new Error(typeof detail==="string"?detail:(detail?.message||"Falha na comunicação com o backend")); }
   return data;
 }
 
@@ -123,11 +123,17 @@ function App() {
         body: JSON.stringify({product_id: product.id, size: 1200, quality: 94})
       });
       setMediaResult(media);
-      update(3, "completed", media.prepared_count + " imagens prontas em 1200×1200", {
-        images: media.prepared
-      });
-      update(4, "blocked", "Aguardando medidas reais do fornecedor");
-      [5,6,7,8,9].forEach(stage => update(stage, "paused", "Pausado: a etapa 4 precisa ser resolvida"));
+      update(3, "completed", media.prepared_count + " imagens prontas, metadados removidos", { images: media.prepared });
+      update(4, "working", "Lendo tamanho, grade e medidas na ficha do produto");
+      const profile = await request("/v1/catalog/products/" + product.id + "/size-profile");
+      if (profile.state === "ready") {
+        const chart = await request("/v1/media/size-chart/auto", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({product_id: product.id}) });
+        update(4, "completed", "Tabela criada com dado explícito da fonte", { images: [...media.prepared, {url: chart.url}] });
+        update(5, "paused", "Tabela pronta; aguardando revisão humana para continuar");
+      } else {
+        update(4, "blocked", profile.evidence + " Não vou inventar medidas.");
+        [5,6,7,8,9].forEach(stage => update(stage, "paused", "Pausado: a ficha de tamanho precisa ser confirmada"));
+      }
     } catch (e) {
       update(3, "blocked", e.message);
       setError(e.message);

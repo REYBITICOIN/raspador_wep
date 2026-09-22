@@ -75,7 +75,7 @@ def fetch_toca_product(url: str) -> dict:
         )
     fields = (
         "id,title,description,price,original_price,images,"
-        "stock,status,brand,sku"
+        "stock,status,brand,sku,sizes"
     )
     with httpx.Client(timeout=30, trust_env=False) as client:
         response = client.get(
@@ -106,6 +106,7 @@ def fetch_toca_product(url: str) -> dict:
         "status": source.get("status") or "draft",
         "brand": source.get("brand") or "Toca da Onça",
         "sku": source.get("sku") or "",
+        "sizes": source.get("sizes"),
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }

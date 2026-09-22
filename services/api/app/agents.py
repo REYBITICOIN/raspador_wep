@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import httpx
@@ -116,9 +117,13 @@ class PrepareImagesRequest(BaseModel):
 
 class SizeChartRequest(BaseModel):
     product_id: str
-    columns: list[str] = Field(min_length=2, max_length=8)
+    columns: list[str] = Field(min_length=1, max_length=8)
     rows: list[dict[str, str | int | float]] = Field(min_length=1, max_length=30)
     unit: str = Field(default="cm", min_length=1, max_length=12)
+
+
+class AutoSizeChartRequest(BaseModel):
+    product_id: str
 
 
 def prepare_one(url: str, target: Path, size: int, quality: int) -> dict:
@@ -162,7 +167,63 @@ def chart_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(path), size=size)
 
 
-def render_size_chart(request: SizeChartRequest, title: str, target: Path) -> None:
+def detect_size_profile(product: dict) -> dict:
+    raw_sizes = product.get("sizes")
+    text = " ".join(
+        str(value or "")
+        for value in (
+            product.get("title"),
+            product.get("description"),
+            raw_sizes,
+        )
+    ).strip()
+    lowered = text.lower()
+    if re.search(r"tamanho\s+[uú]nico|tam\.?\s*[uú]nico|\b[uú]nico\b", lowered):
+        return {
+            "state": "ready",
+            "mode": "one_size",
+            "sizes": ["Único"],
+            "evidence": "A fonte informa explicitamente tamanho único.",
+        }
+
+    detected: list[str] = []
+    if isinstance(raw_sizes, list):
+        for value in raw_sizes:
+            label = value.get("size") if isinstance(value, dict) else value
+            if label and str(label).strip() not in detected:
+                detected.append(str(label).strip())
+    elif isinstance(raw_sizes, str) and raw_sizes.strip():
+        detected.extend(
+            part.strip()
+            for part in re.split(r"[,/;|]", raw_sizes)
+            if part.strip()
+        )
+    if not detected:
+        labels = re.findall(
+            r"(?<!\w)(PP|P|M|G|GG|XG|XGG|G1|G2|G3|G4)(?!\w)",
+            text.upper(),
+        )
+        detected = list(dict.fromkeys(labels))
+    if detected:
+        return {
+            "state": "needs_measurements",
+            "mode": "available_sizes",
+            "sizes": detected,
+            "evidence": "Tamanhos encontrados na ficha do produto.",
+        }
+    return {
+        "state": "blocked",
+        "mode": "missing_source_data",
+        "sizes": [],
+        "evidence": "A fonte não informa medidas nem tamanho único.",
+        "required": [
+            "tamanho único confirmado; ou",
+            "grade disponível e medidas do fabricante",
+        ],
+    }
+
+
+def render_size_chart(request: SizeChartRequest, product: dict, target: Path) -> None:
     columns = [str(column).strip() for column in request.columns]
     if any(not column for column in columns) or len(set(columns)) != len(columns):
         raise HTTPException(422, "As colunas devem ser únicas e preenchidas")
@@ -179,23 +240,28 @@ def render_size_chart(request: SizeChartRequest, title: str, target: Path) -> No
         raise HTTPException(422, "A tabela contém medidas vazias")
 
     width = height = 1200
-    margin, top, row_height = 80, 260, 78
-    table_width = width - margin * 2
+    margin, top, row_height = 500, 315, 76
+    table_width = width - margin - 60
     column_width = table_width / len(columns)
-    if top + row_height * (len(normalized) + 1) > height - 100:
+    if top + row_height * (len(normalized) + 1) > height - 150:
         raise HTTPException(422, "Há linhas demais para a arte de medidas")
 
-    canvas = Image.new("RGB", (width, height), "#ffffff")
+    canvas = Image.new("RGB", (width, height), "#f4eadf")
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0, 0, width, 170), fill="#061720")
-    draw.text((margin, 50), "GUIA DE MEDIDAS", font=chart_font(48, True), fill="#33e7ff")
-    draw.text((margin, 185), title[:55], font=chart_font(28, True), fill="#102b37")
-    draw.text(
-        (width - 260, 195),
-        f"Unidade: {request.unit}",
-        font=chart_font(22),
-        fill="#426572",
-    )
+    draw.rectangle((0, 0, width, 175), fill="#4a281d")
+    draw.text((60, 42), "TABELA DE MEDIDAS", font=chart_font(52, True), fill="#ffffff")
+    title = (product.get("title") or "Produto").strip()
+    draw.text((60, 205), title[:58], font=chart_font(28, True), fill="#4a281d")
+    draw.text((margin, 267), f"Medidas em {request.unit}", font=chart_font(22, True), fill="#175d3b")
+
+    photo_path = MEDIA_DIR / request.product_id / "01.jpg"
+    if photo_path.exists():
+        photo = Image.open(photo_path).convert("RGB")
+        photo = ImageOps.contain(photo, (380, 690), method=Image.Resampling.LANCZOS)
+        canvas.paste(photo, (60 + (380 - photo.width) // 2, 300))
+    draw.text((60, 1025), "COMO MEDIR", font=chart_font(24, True), fill="#175d3b")
+    draw.text((60, 1065), "Use fita métrica sem apertar.", font=chart_font(19), fill="#4a281d")
+    draw.text((60, 1100), "Compare com a tabela ao lado.", font=chart_font(19), fill="#4a281d")
 
     for column_index, heading in enumerate(columns):
         left = margin + column_index * column_width
@@ -227,7 +293,7 @@ def render_size_chart(request: SizeChartRequest, title: str, target: Path) -> No
             )
     draw.text(
         (margin, height - 70),
-        "Medidas fornecidas e confirmadas pelo catálogo.",
+        "Dados confirmados pela ficha do produto ou fornecedor.",
         font=chart_font(20),
         fill="#587580",
     )
@@ -288,6 +354,8 @@ def prepare_images(request: PrepareImagesRequest) -> dict:
         "prepared": prepared,
         "errors": errors,
         "approval_required": True,
+        "metadata_removed": True,
+        "color_profile": "sRGB-compatible RGB",
     }
 
 
@@ -297,7 +365,7 @@ def create_size_chart(request: SizeChartRequest) -> dict:
     product_dir = MEDIA_DIR / request.product_id
     product_dir.mkdir(parents=True, exist_ok=True)
     target = product_dir / "size-chart.jpg"
-    render_size_chart(request, product.get("title") or "Produto", target)
+    render_size_chart(request, product, target)
     return {
         "product_id": request.product_id,
         "agent_id": "size-chart-builder",
@@ -307,5 +375,53 @@ def create_size_chart(request: SizeChartRequest) -> dict:
         "rows": len(request.rows),
         "unit": request.unit,
         "source": "confirmed_user_or_catalog_data",
+        "approval_required": True,
+    }
+
+
+
+@router.get("/catalog/products/{product_id}/size-profile")
+def product_size_profile(product_id: str) -> dict:
+    product = find_product(product_id)
+    return {
+        "product_id": product_id,
+        "agent_id": "size-chart-builder",
+        **detect_size_profile(product),
+    }
+
+
+@router.post("/media/size-chart/auto")
+def create_automatic_size_chart(request: AutoSizeChartRequest) -> dict:
+    product = find_product(request.product_id)
+    profile = detect_size_profile(product)
+    if profile["state"] != "ready":
+        raise HTTPException(
+            422,
+            {
+                "message": profile["evidence"],
+                "state": profile["state"],
+                "required": profile.get("required", ["medidas do fabricante"]),
+                "sizes_found": profile.get("sizes", []),
+            },
+        )
+    chart_request = SizeChartRequest(
+        product_id=request.product_id,
+        columns=["TAMANHO"],
+        rows=[{"TAMANHO": size} for size in profile["sizes"]],
+        unit="informado",
+    )
+    product_dir = MEDIA_DIR / request.product_id
+    product_dir.mkdir(parents=True, exist_ok=True)
+    target = product_dir / "size-chart.jpg"
+    render_size_chart(chart_request, product, target)
+    return {
+        "product_id": request.product_id,
+        "agent_id": "size-chart-builder",
+        "state": "completed",
+        "mode": profile["mode"],
+        "url": f"/media/{request.product_id}/{target.name}",
+        "sizes": profile["sizes"],
+        "evidence": profile["evidence"],
+        "metadata_removed": True,
         "approval_required": True,
     }
