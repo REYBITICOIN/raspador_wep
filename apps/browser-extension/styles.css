@@ -9,3 +9,7 @@
 .toca-ray-warning{padding:10px;background:#2f250d;color:#ffd17a;font-size:11px;line-height:1.4}
 .toca-ray-save,#toca-commerce-ray-x .toca-ray-save{width:100%;padding:11px;border:0;background:#39e4a0;color:#052016;font-weight:800;cursor:pointer}
 .toca-popup{margin:0;width:280px;background:#06151d;color:#e8f7fa;font:13px Arial,sans-serif}.toca-popup main{padding:18px}.toca-popup strong{color:#55e7ff}.toca-popup p,.toca-popup #status{color:#7899a1}.toca-popup button{width:100%;padding:10px;border:0;background:#39e4a0;font-weight:800}
+
+.toca-margin{margin:12px 0;padding:10px;border:1px solid #17414b;background:#081d26}.toca-margin>strong{display:block;margin-bottom:8px;color:#55e7ff;font-size:11px;letter-spacing:.08em}
+.toca-margin label{display:grid;grid-template-columns:1fr 90px;align-items:center;gap:8px;margin:6px 0;color:#9ab5bb;font-size:11px}.toca-margin input{width:100%;padding:6px;background:#031016;color:#e8f7fa;border:1px solid #245563}
+.toca-margin button{width:100%;margin-top:6px;padding:8px;border:0;background:#55e7ff;color:#042029;font-weight:800;cursor:pointer}.toca-margin output{display:block;margin-top:8px;color:#64efae;font-size:11px;line-height:1.4}

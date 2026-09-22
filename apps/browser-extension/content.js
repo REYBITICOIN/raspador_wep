@@ -92,6 +92,35 @@
     row.append(key, data);
     return row;
   }
+  function marginCalculator(data) {
+    const box = document.createElement("div");
+    box.className = "toca-margin";
+    box.innerHTML = `<strong>CALCULADORA DE LUCRO</strong>
+      <label>Custo do produto <input data-cost type="number" min="0" step="0.01"></label>
+      <label>Comissão % <input data-commission type="number" min="0" max="100" step="0.01"></label>
+      <label>Frete + taxa fixa <input data-fixed type="number" min="0" step="0.01"></label>
+      <button type="button">CALCULAR MARGEM</button><output></output>`;
+    box.querySelector("button").onclick = () => {
+      const output = box.querySelector("output");
+      output.textContent = "CALCULANDO...";
+      const payload = {
+        sale_price: data.price,
+        acquisition_cost: Number(box.querySelector("[data-cost]").value || 0),
+        commission_percent: Number(box.querySelector("[data-commission]").value || 0),
+        shipping_cost: Number(box.querySelector("[data-fixed]").value || 0)
+      };
+      chrome.runtime.sendMessage({type: "TOCA_CALCULATE_MARGIN", payload}, response => {
+        if (!response?.ok) {
+          output.textContent = "ERRO: " + (response?.error || "sem conexão");
+          return;
+        }
+        const value = response.result;
+        output.textContent = `Lucro líquido: R$ ${value.net_profit.toFixed(2)} · Margem: ${value.net_margin_percent.toFixed(2)}% · Mínimo: R$ ${value.break_even_price.toFixed(2)}`;
+      });
+    };
+    return box;
+  }
+
   function render() {
     document.getElementById(PANEL_ID)?.remove();
     const data = inspectPage();
@@ -123,6 +152,7 @@
     warning.className = "toca-ray-warning";
     warning.textContent = data.warnings.join(" ");
     body.append(warning);
+    if (data.price != null) body.append(marginCalculator(data));
 
     const save = document.createElement("button");
     save.className = "toca-ray-save";
