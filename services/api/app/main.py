@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from threading import Lock
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 import httpx
@@ -79,6 +79,16 @@ def assert_public_url(value: str) -> None:
             raise HTTPException(400, "Endereços privados ou locais não são permitidos")
 
 
+def normalize_target(value: str) -> str:
+    """Remove fragmentos/rastreadores que atrapalham navegadores e APIs."""
+    parsed = urlparse(value.strip())
+    hostname = (parsed.hostname or "").lower()
+    query = parsed.query
+    if hostname.endswith("mercadolivre.com.br"):
+        query = ""
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, ""))
+
+
 def extract_title(html: str) -> str | None:
     match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
     if not match:
@@ -103,7 +113,119 @@ def parse_json_answer(value: str) -> dict:
     return json.loads(value[start : end + 1])
 
 
-def extract_with_nvidia(page_text: str, instruction: str, source_url: str) -> dict:
+def usable_products(extraction: dict | None) -> list[dict]:
+    if not extraction or not isinstance(extraction.get("products"), list):
+        return []
+    return [
+        item for item in extraction["products"]
+        if isinstance(item, dict)
+        and str(item.get("title") or "").strip()
+        and any(item.get(field) not in (None, "", []) for field in ("price", "image_url", "availability", "url"))
+    ]
+
+
+def fetch_toca_product(target: str) -> dict | None:
+    parsed = urlparse(target)
+    if parsed.hostname not in {"tocadaoncamodas.com.br", "www.tocadaoncamodas.com.br"}:
+        return None
+    match = re.search(r"/produto/([0-9a-fA-F-]{36})", parsed.path)
+    if not match:
+        return None
+    product_id = match.group(1)
+    api_url = "https://wwwzcdmiusaulwlfrlfu.supabase.co/rest/v1/products"
+    public_key = "sb_publishable_g2Yl9toMotRnXSZPmc1JPQ_tiL9wprf"
+    with httpx.Client(trust_env=False, timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10)) as client:
+        response = client.get(
+            api_url,
+            params={"id": f"eq.{product_id}", "select": "id,title,description,price,original_price,images,stock,status,brand,sku"},
+            headers={"apikey": public_key},
+        )
+    response.raise_for_status()
+    rows = response.json()
+    if not rows:
+        return None
+    row = rows[0]
+    images = row.get("images") or []
+    official_price = row.get("price")
+    description = row.get("description") or ""
+    described_prices = []
+    for value in re.findall(r"R\$\s*([0-9.]+(?:,[0-9]{2})?)", description):
+        try:
+            described_prices.append(float(value.replace(".", "").replace(",", ".")))
+        except ValueError:
+            pass
+    warnings = []
+    different_prices = sorted({price for price in described_prices if official_price is not None and price != float(official_price)})
+    if different_prices:
+        shown = ", ".join(f"R$ {price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") for price in different_prices)
+        warnings.append(f"Divergência de preço: o campo oficial é R$ {float(official_price):.2f} e a descrição também menciona {shown}.")
+    return {
+        "page_type": "product",
+        "summary": description or row.get("title") or "",
+        "products": [{
+            "title": row.get("title") or "",
+            "price": official_price,
+            "currency": "BRL",
+            "url": target,
+            "image_url": images[0] if images else "",
+            "images": images,
+            "availability": "em estoque" if (row.get("stock") or 0) > 0 and row.get("status") == "active" else "indisponível",
+            "seller": row.get("brand") or "Toca da Onça",
+            "description": description,
+            "stock": row.get("stock"),
+            "sku": row.get("sku") or "",
+        }],
+        "warnings": warnings,
+    }
+
+
+def fetch_mercadolivre_product(target: str) -> dict | None:
+    parsed = urlparse(target)
+    hostname = (parsed.hostname or "").lower()
+    if not hostname.endswith("mercadolivre.com.br"):
+        return None
+    match = re.search(r"(?:^|[-/])(MLB)[-_]?(\d{8,})", parsed.path, re.I)
+    if not match:
+        return None
+    item_id = f"{match.group(1).upper()}{match.group(2)}"
+    api_url = f"https://api.mercadolibre.com/items/{item_id}"
+    with httpx.Client(
+        trust_env=False,
+        follow_redirects=True,
+        timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10),
+        headers={"User-Agent": "Mozilla/5.0 WebIntelligenceLab/0.2"},
+    ) as client:
+        response = client.get(api_url)
+    if response.status_code == 404:
+        raise ValueError(f"O Mercado Livre não encontrou o anúncio {item_id}")
+    response.raise_for_status()
+    row = response.json()
+    pictures = [item.get("secure_url") or item.get("url") for item in row.get("pictures", [])]
+    pictures = [item for item in pictures if item]
+    stock = row.get("available_quantity")
+    status = row.get("status")
+    return {
+        "page_type": "product",
+        "summary": row.get("title") or "",
+        "products": [{
+            "title": row.get("title") or "",
+            "price": row.get("price"),
+            "currency": row.get("currency_id") or "BRL",
+            "url": row.get("permalink") or target,
+            "image_url": pictures[0] if pictures else (row.get("thumbnail") or ""),
+            "images": pictures,
+            "availability": "em estoque" if status == "active" and (stock is None or stock > 0) else "indisponível",
+            "seller": str(row.get("seller_id") or "Mercado Livre"),
+            "description": "",
+            "stock": stock,
+            "sku": item_id,
+            "condition": row.get("condition") or "",
+        }],
+        "warnings": [],
+    }
+
+
+def extract_with_nvidia(page_text: str, instruction: str, source_url: str, compact: bool = False) -> dict:
     if not settings.nvidia_api_key:
         raise ValueError("A chave NVIDIA não está configurada no arquivo .env")
     prompt = f"""Extraia dados comerciais apenas do conteúdo fornecido.
@@ -115,12 +237,18 @@ Não invente dados. Se a página for login, CAPTCHA ou verificação, use page_t
 CONTEÚDO:
 {page_text}"""
     selected_model = (settings.nvidia_model or "").strip() or "nvidia/nemotron-3.5-lightning-30b-a3b"
-    response = httpx.post(
-        settings.nvidia_base_url.rstrip("/") + "/chat/completions",
-        headers={"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"},
-        json={"model": selected_model, "messages": [{"role": "system", "content": "Você é um extrator de dados preciso. Nunca invente campos ausentes."}, {"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 3000, "stream": False},
-        timeout=180,
-    )
+    request_body = {"model": selected_model, "messages": [{"role": "system", "content": "Você é um extrator de dados preciso. Nunca invente campos ausentes."}, {"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 900 if compact else 1600, "stream": False}
+    try:
+        response = httpx.post(
+            settings.nvidia_base_url.rstrip("/") + "/chat/completions",
+            headers={"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"},
+            json=request_body,
+            timeout=httpx.Timeout(connect=15, read=240, write=30, pool=30),
+        )
+    except httpx.ReadTimeout:
+        if compact:
+            raise ValueError("NVIDIA excedeu o tempo mesmo após a repetição compacta")
+        return extract_with_nvidia(page_text[:7000], instruction, source_url, compact=True)
     if response.is_error:
         raise ValueError(f"NVIDIA HTTP {response.status_code}: {response.text[:600]}")
     payload = response.json()
@@ -144,7 +272,7 @@ async def crawl_dynamic_page(target: str) -> dict:
         cache_mode=CacheMode.BYPASS,
         page_timeout=90000,
         delay_before_return_html=3.0,
-        scan_full_page=True,
+        scan_full_page=False,
         remove_overlay_elements=True,
     )
     async with AsyncWebCrawler(config=browser) as crawler:
@@ -159,7 +287,7 @@ async def crawl_dynamic_page(target: str) -> dict:
         "final_url": result.url or target,
         "http_status": result.status_code,
         "html": result.html or "",
-        "text": str(markdown).strip()[:30000],
+        "text": str(markdown).strip()[:14000],
     }
 
 
@@ -208,7 +336,7 @@ def create_job(request: JobRequest) -> dict:
         raise HTTPException(400, "Provedor inválido")
     if request.provider == "grok" and not settings.allow_paid_models:
         raise HTTPException(403, "Grok está bloqueado até a autorização de gasto")
-    target = str(request.url)
+    target = normalize_target(str(request.url))
     assert_public_url(target)
     job_id = str(uuid4())
     job = {"id": job_id, "url": target, "instruction": request.instruction.strip(), "provider": request.provider, "status": "running", "created_at": now_iso(), "completed_at": None, "result": None, "error": None}
@@ -216,7 +344,27 @@ def create_job(request: JobRequest) -> dict:
         jobs[job_id] = job
         save_jobs()
     try:
-        page = asyncio.run(crawl_dynamic_page(target))
+        source_extraction = fetch_toca_product(target) or fetch_mercadolivre_product(target)
+        if source_extraction:
+            product = usable_products(source_extraction)[0]
+            actual_provider = "source-api" if "tocadaoncamodas.com.br" in target else "mercadolivre-api"
+            job["result"] = {
+                "title": product["title"],
+                "final_url": product.get("url") or target,
+                "http_status": 200,
+                "bytes": 0,
+                "collector": actual_provider,
+                "actual_provider": actual_provider,
+                "blocked": False,
+                "extraction": source_extraction,
+                "note": "Dados oficiais consultados diretamente na fonte.",
+            }
+            job["status"] = "completed"
+            return job
+        try:
+            page = asyncio.run(crawl_dynamic_page(target))
+        except Exception as exc:
+            raise ValueError(f"Falha na etapa Crawl4AI: {exc}") from exc
         final_url = page["final_url"]
         page_text = page["text"]
         if not page_text:
@@ -227,16 +375,25 @@ def create_job(request: JobRequest) -> dict:
         actual_provider = "baseline"
         extraction = None
         if request.provider == "nvidia" or (request.provider == "auto" and settings.nvidia_api_key):
-            extraction = extract_with_nvidia(page_text, request.instruction, final_url)
             actual_provider = "nvidia"
+            job["result"] = {"title": page["title"] or extract_title(page["html"]), "final_url": final_url, "http_status": page["http_status"], "bytes": len(page["html"].encode("utf-8")), "collector": "crawl4ai-playwright", "actual_provider": actual_provider, "blocked": is_blocked, "extraction": None, "note": "Página renderizada; aguardando extração NVIDIA."}
+            try:
+                extraction = extract_with_nvidia(page_text, request.instruction, final_url)
+            except Exception as exc:
+                raise ValueError(f"Falha na etapa NVIDIA: {exc}") from exc
         elif request.provider == "grok":
             raise ValueError("A integração Grok ainda não está implementada")
-        products = extraction.get("products", []) if extraction else []
-        page_type = extraction.get("page_type") if extraction else None
-        empty_product_result = bool(extraction) and not products and page_type in {"product", "listing", "other"}
-        job["result"] = {"title": page["title"] or extract_title(page["html"]), "final_url": final_url, "http_status": page["http_status"], "bytes": len(page["html"].encode("utf-8")), "collector": "crawl4ai-playwright", "actual_provider": actual_provider, "blocked": is_blocked, "extraction": extraction, "note": "A página redirecionou para verificação e não entregou os produtos." if is_blocked else ("Crawl4AI renderizou a página e a NVIDIA concluiu a extração." if extraction and not empty_product_result else "A página foi renderizada, mas nenhum produto foi identificado.")}
-        job["status"] = "failed" if is_blocked or empty_product_result else "completed"
-        if empty_product_result:
+        products = usable_products(extraction)
+        page_type = str(extraction.get("page_type") or "").strip().lower() if extraction else ""
+        valid_page_types = {"product", "listing", "blocked", "other"}
+        invalid_page_type = bool(extraction) and page_type not in valid_page_types
+        empty_product_result = bool(extraction) and not products
+        success_note = "Dados oficiais consultados diretamente na fonte da loja." if actual_provider == "source-api" else "Crawl4AI renderizou a página e a NVIDIA concluiu a extração."
+        job["result"] = {"title": page["title"] or extract_title(page["html"]), "final_url": final_url, "http_status": page["http_status"], "bytes": len(page["html"].encode("utf-8")), "collector": "crawl4ai-playwright", "actual_provider": actual_provider, "blocked": is_blocked, "extraction": extraction, "note": "A página redirecionou para verificação e não entregou os produtos." if is_blocked else (success_note if extraction and not empty_product_result else "A página foi renderizada, mas nenhum produto foi identificado.")}
+        job["status"] = "failed" if is_blocked or empty_product_result or invalid_page_type else "completed"
+        if invalid_page_type:
+            job["error"] = f"A NVIDIA devolveu page_type inválido: {page_type or 'vazio'}."
+        elif empty_product_result:
             job["error"] = "A coleta terminou sem localizar dados de produto; o resultado não foi aprovado."
     except Exception as exc:
         job["status"] = "failed"
