@@ -25,6 +25,7 @@ from .ml_oauth import start_token_keeper
 from .extension_api import router as extension_router
 from .margin import router as margin_router
 from .agency_router import router as agency_router
+from .reach_router import router as reach_router
 
 
 class Settings(BaseSettings):
@@ -42,7 +43,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-app = FastAPI(title="Toca Commerce OS API", version="0.3.0")
+app = FastAPI(title="Toca Commerce OS API", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[item.strip() for item in settings.cors_origins.split(",")],
@@ -57,6 +58,7 @@ app.include_router(seo_router)
 app.include_router(extension_router)
 app.include_router(margin_router)
 app.include_router(agency_router)
+app.include_router(reach_router)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 
