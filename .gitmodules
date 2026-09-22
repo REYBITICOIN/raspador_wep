@@ -4,3 +4,6 @@
 [submodule "vendor/agent-reach"]
 	path = vendor/agent-reach
 	url = https://github.com/Panniantong/Agent-Reach.git
+[submodule "vendor/windows-mcp"]
+	path = vendor/windows-mcp
+	url = https://github.com/CursorTouch/Windows-MCP.git
