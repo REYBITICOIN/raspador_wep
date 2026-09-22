@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Toca Commerce Intelligence",
+  "version": "0.1.0",
+  "description": "Raio-X factual de anúncios para o Toca Commerce OS.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "http://127.0.0.1:8091/*",
+    "https://*.mercadolivre.com.br/*",
+    "https://*.mercadolibre.com/*",
+    "https://*.shopee.com.br/*",
+    "https://*.amazon.com.br/*"
+  ],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_popup": "popup.html", "default_title": "Toca Commerce Intelligence"},
+  "content_scripts": [{
+    "matches": [
+      "https://*.mercadolivre.com.br/*",
+      "https://*.mercadolibre.com/*",
+      "https://*.shopee.com.br/*",
+      "https://*.amazon.com.br/*"
+    ],
+    "js": ["content.js"],
+    "css": ["styles.css"],
+    "run_at": "document_idle"
+  }]
+}

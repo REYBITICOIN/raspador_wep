@@ -22,6 +22,7 @@ from .agents import MEDIA_DIR, router as agents_router
 from .commerce import router as commerce_router
 from .seo_agents import router as seo_router
 from .ml_oauth import start_token_keeper
+from .extension_api import router as extension_router
 
 
 class Settings(BaseSettings):
@@ -43,6 +44,7 @@ app = FastAPI(title="Toca Commerce OS API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[item.strip() for item in settings.cors_origins.split(",")],
+    allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
@@ -50,6 +52,7 @@ app.add_middleware(
 app.include_router(commerce_router)
 app.include_router(agents_router)
 app.include_router(seo_router)
+app.include_router(extension_router)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 

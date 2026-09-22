@@ -1,0 +1,11 @@
+#toca-commerce-ray-x{all:initial;position:fixed;z-index:2147483647;top:90px;right:18px;width:340px;background:#06151d;color:#e8f7fa;border:1px solid #1e6674;box-shadow:0 18px 60px #000b;font-family:Arial,sans-serif}
+#toca-commerce-ray-x *{box-sizing:border-box}
+#toca-commerce-ray-x header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #17414b;color:#55e7ff;letter-spacing:.08em}
+#toca-commerce-ray-x header button{border:0;background:transparent;color:#8db1b9;font-size:22px;cursor:pointer}
+#toca-commerce-ray-x section{padding:14px}
+.toca-ray-row{display:grid;grid-template-columns:88px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid #102f38}
+.toca-ray-row span{color:#71949d;font-size:11px;text-transform:uppercase}.toca-ray-row b{font-size:12px;line-height:1.35;overflow-wrap:anywhere}
+#toca-commerce-ray-x small{display:block;margin-top:12px;color:#7899a1;line-height:1.4}
+.toca-ray-warning{padding:10px;background:#2f250d;color:#ffd17a;font-size:11px;line-height:1.4}
+.toca-ray-save,#toca-commerce-ray-x .toca-ray-save{width:100%;padding:11px;border:0;background:#39e4a0;color:#052016;font-weight:800;cursor:pointer}
+.toca-popup{margin:0;width:280px;background:#06151d;color:#e8f7fa;font:13px Arial,sans-serif}.toca-popup main{padding:18px}.toca-popup strong{color:#55e7ff}.toca-popup p,.toca-popup #status{color:#7899a1}.toca-popup button{width:100%;padding:10px;border:0;background:#39e4a0;font-weight:800}
