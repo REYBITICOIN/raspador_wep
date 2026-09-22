@@ -33,3 +33,5 @@ aside nav{display:flex;flex-direction:column;gap:18px;margin-top:20px}.nav-group
 .publish-lock{display:grid;gap:6px;margin-top:18px;padding:15px;border:1px solid #7a3542;background:#35151b;color:#ff9eaa}.publish-lock span{font-size:11px;color:#d99aa3}.run-button{margin-left:8px}
 @media(max-width:1000px){.execution-layout{grid-template-columns:1fr}}
 @media(max-width:600px){.agent-node{grid-template-columns:42px 1fr}.node-state{grid-column:2}.live-product{grid-template-columns:1fr}.live-product img{width:100%;height:auto}}
+
+.agent-node.attention{background:#2d220b66}.agent-node.attention .node-number,.agent-node.attention .node-state{color:#ffc766;border-color:#8a6425}

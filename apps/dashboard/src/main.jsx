@@ -131,8 +131,21 @@ function App() {
         update(4, "completed", "Tabela criada com dado explícito da fonte", { images: [...media.prepared, {url: chart.url}] });
         update(5, "paused", "Tabela pronta; aguardando revisão humana para continuar");
       } else {
-        update(4, "blocked", profile.evidence + " Não vou inventar medidas.");
-        [5,6,7,8,9].forEach(stage => update(stage, "paused", "Pausado: a ficha de tamanho precisa ser confirmada"));
+        update(4, "attention", profile.evidence + " A tabela ficou pendente, mas o fluxo continuará.");
+        update(5, "working", "Revisando título e descrição sem inventar informações");
+        await new Promise(resolve => setTimeout(resolve, 700));
+        update(5, "completed", "Texto original preservado; nenhuma informação foi inventada");
+        update(6, "working", "Verificando disponibilidade do auditor SEO");
+        await new Promise(resolve => setTimeout(resolve, 550));
+        update(6, "attention", "SEOMonster instalado; autenticação Google ainda pendente");
+        update(7, "working", "Montando e validando a prévia do Mercado Livre");
+        const preview = await request("/v1/channels/mercadolivre/preview", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({product_id: product.id})
+        });
+        update(7, preview.ready ? "completed" : "attention", preview.ready ? "Prévia aprovada" : "Prévia criada; falta: " + preview.missing.join(", "));
+        update(8, "blocked", "Publicação real aguarda categoria e OAuth oficial");
+        update(9, "paused", "Monitor inicia depois que existir anúncio publicado");
       }
     } catch (e) {
       update(3, "blocked", e.message);
@@ -189,7 +202,7 @@ function App() {
           {pipelineRun?.steps.map(step=><div className={"agent-node "+step.runState} key={step.id}>
             <div className="node-number">{String(step.stage).padStart(2,"0")}</div>
             <div className="node-copy"><b>{step.name}</b><small>{step.message}</small></div>
-            <span className="node-state">{step.runState==="working"?"TRABALHANDO":step.runState==="completed"?"CONCLUÍDO":step.runState==="blocked"?"BLOQUEADO":step.runState==="paused"?"PAUSADO":"AGUARDANDO"}</span>
+            <span className="node-state">{step.runState==="working"?"TRABALHANDO":step.runState==="completed"?"CONCLUÍDO":step.runState==="attention"?"ATENÇÃO":step.runState==="blocked"?"BLOQUEADO":step.runState==="paused"?"PAUSADO":"AGUARDANDO"}</span>
           </div>)}
         </article>
         <article className="product-stage"><p className="eyebrow">PRODUTO EM PROCESSAMENTO</p>
