@@ -23,6 +23,7 @@ from .commerce import router as commerce_router
 from .seo_agents import router as seo_router
 from .ml_oauth import start_token_keeper
 from .extension_api import router as extension_router
+from .margin import router as margin_router
 
 
 class Settings(BaseSettings):
@@ -53,6 +54,7 @@ app.include_router(commerce_router)
 app.include_router(agents_router)
 app.include_router(seo_router)
 app.include_router(extension_router)
+app.include_router(margin_router)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 
