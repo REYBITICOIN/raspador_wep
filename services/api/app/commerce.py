@@ -6,13 +6,20 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, HttpUrl
+
+from .ml_oauth import (
+    begin_authorization,
+    finish_authorization,
+    public_token_status,
+    refresh_access_token,
+)
 
 load_dotenv()
 
@@ -201,34 +208,49 @@ def import_product(request: ImportProductRequest) -> dict:
 def mercadolivre_state() -> str:
     app_id = os.getenv("MERCADOLIVRE_APP_ID")
     secret = os.getenv("MERCADOLIVRE_CLIENT_SECRET")
-    return "configured" if app_id and secret else "needs_credentials"
+    if not app_id or not secret:
+        return "needs_credentials"
+    status = public_token_status()
+    return "connected" if status.get("connected") else "authorization_required"
 
 
 @router.get("/channels/mercadolivre/status")
 def mercadolivre_status() -> dict:
+    status = public_token_status()
     return {
+        **status,
         "state": mercadolivre_state(),
         "secret_exposed_to_browser": False,
         "live_publish_enabled": False,
-        "next_step": "Gere uma nova chave secreta e configure somente no backend.",
+        "next_step": (
+            "Conexão ativa; o token será renovado automaticamente."
+            if status.get("connected")
+            else "Autorize a conta do Mercado Livre uma única vez."
+        ),
     }
 
 
 @router.get("/channels/mercadolivre/oauth/start")
 def mercadolivre_oauth_start() -> dict:
-    app_id = os.getenv("MERCADOLIVRE_APP_ID")
-    redirect_uri = os.getenv("MERCADOLIVRE_REDIRECT_URI")
-    if not app_id or not redirect_uri:
-        raise HTTPException(503, "OAuth do Mercado Livre ainda não configurado")
-    query = urlencode(
-        {
-            "response_type": "code",
-            "client_id": app_id,
-            "redirect_uri": redirect_uri,
-        }
-    )
+    return {"authorization_url": begin_authorization()}
+
+
+@router.get("/channels/mercadolivre/oauth/callback")
+def mercadolivre_oauth_callback(
+    code: str = Query(min_length=3),
+    state: str = Query(min_length=16),
+) -> dict:
     return {
-        "authorization_url": f"https://auth.mercadolivre.com.br/authorization?{query}"
+        "message": "Mercado Livre conectado. A renovação automática está ativa.",
+        "token": finish_authorization(code, state),
+    }
+
+
+@router.post("/channels/mercadolivre/oauth/refresh")
+def mercadolivre_oauth_refresh() -> dict:
+    return {
+        "message": "Token renovado e refresh_token rotacionado.",
+        "token": public_token_status(refresh_access_token(force=True)),
     }
 @router.post("/channels/mercadolivre/preview")
 def mercadolivre_preview(

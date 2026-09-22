@@ -21,6 +21,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .agents import MEDIA_DIR, router as agents_router
 from .commerce import router as commerce_router
 from .seo_agents import router as seo_router
+from .ml_oauth import start_token_keeper
 
 
 class Settings(BaseSettings):
@@ -50,6 +51,12 @@ app.include_router(commerce_router)
 app.include_router(agents_router)
 app.include_router(seo_router)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+
+@app.on_event("startup")
+def start_background_services() -> None:
+    start_token_keeper()
+
 
 data_file = Path(settings.data_dir) / "jobs.json"
 data_file.parent.mkdir(parents=True, exist_ok=True)

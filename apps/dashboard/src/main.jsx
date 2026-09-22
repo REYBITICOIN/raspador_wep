@@ -50,17 +50,27 @@ function App() {
   const [pipelineRun, setPipelineRun] = useState(null);
   const [seoDraft, setSeoDraft] = useState(null);
   const [importUrl, setImportUrl] = useState("");
+  const [mlStatus, setMlStatus] = useState({state: "loading", connected: false});
 
   async function refresh() {
-    const [h, p, s, j, c, products, a] = await Promise.all([
+    const [h, p, s, j, c, products, a, ml] = await Promise.all([
       request("/health"), request("/v1/providers"), request("/v1/stats"), request("/v1/jobs"),
-      request("/v1/commerce/overview"), request("/v1/catalog/products"), request("/v1/agents")
+      request("/v1/commerce/overview"), request("/v1/catalog/products"), request("/v1/agents"),
+      request("/v1/channels/mercadolivre/status")
     ]);
     setHealth(h); setProviders(p.providers || []); setStats(s); setJobs(j);
-    setCommerce(c); setCatalog(products); setAgents(a.agents || []);
+    setCommerce(c); setCatalog(products); setAgents(a.agents || []); setMlStatus(ml);
   }
 
   useEffect(() => { refresh().catch(e => setError(e.message)); }, []);
+
+  async function connectMercadoLivre() {
+    setLoading(true); setError("");
+    try {
+      const oauth = await request("/v1/channels/mercadolivre/oauth/start");
+      window.open(oauth.authorization_url, "_blank", "noopener,noreferrer");
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
+  }
 
   async function submit(e) {
     e.preventDefault(); setLoading(true); setError("");
@@ -173,7 +183,7 @@ function App() {
   const cards = [
     ["PRODUTOS", commerce.products, "no catálogo central"],
     ["PUBLICAÇÕES", commerce.publications, "envios registrados"],
-    ["CANAIS", commerce.channels.filter(c => c.state === "configured").length, "configurados"],
+    ["CANAIS", commerce.channels.filter(c => ["configured","connected"].includes(c.state)).length, "configurados"],
     ["COLETAS", stats.completed, stats.failed ? stats.failed + " falha(s)" : "sem falhas"]
   ];
 
@@ -273,7 +283,23 @@ function App() {
         </article>
       </div>}
 
-      {view === "Canais" && <div className="columns providers"><article><p className="eyebrow">MARKETPLACES</p><h2>Conexões comerciais</h2>{commerce.channels.map(channel=><div className="provider" key={channel.id}><div className="logo">{channel.id.slice(0,2).toUpperCase()}</div><div><b>{channel.id}</b><small>{channel.id==="mercadolivre"?"API oficial e OAuth":"Próxima integração"}</small></div><span className={channel.state==="configured"?"ok":"off"}>{channel.state==="configured"?"CONFIGURADO":channel.state==="planned"?"PLANEJADO":"AGUARDA CHAVE"}</span></div>)}</article><article><p className="eyebrow">SEGURANÇA</p><h2>Publicação controlada</h2><p>As chaves ficam somente no backend. Cada anúncio passa por prévia, validação e aprovação antes do envio.</p><div className="guard">A chave secreta exibida anteriormente deve ser substituída no painel de desenvolvedores.</div></article></div>}
+      {view === "Canais" && <div className="columns providers">
+        <article><p className="eyebrow">MARKETPLACES</p><h2>Conexões comerciais</h2>
+          {commerce.channels.map(channel=><div className="provider" key={channel.id}>
+            <div className="logo">{channel.id.slice(0,2).toUpperCase()}</div>
+            <div><b>{channel.id}</b><small>{channel.id==="mercadolivre"?"OAuth oficial com renovação automática":"Próxima integração"}</small></div>
+            <span className={(channel.id==="mercadolivre"?mlStatus.connected:channel.state==="configured")?"ok":"off"}>
+              {channel.id==="mercadolivre"?(mlStatus.connected?"CONECTADO":"AUTORIZAÇÃO PENDENTE"):channel.state==="planned"?"PLANEJADO":"AGUARDA CHAVE"}
+            </span>
+          </div>)}
+          {!mlStatus.connected&&<button disabled={loading||mlStatus.state==="needs_credentials"} onClick={connectMercadoLivre}>CONECTAR MERCADO LIVRE</button>}
+        </article>
+        <article><p className="eyebrow">TOKEN AUTOMÁTICO</p><h2>{mlStatus.connected?"Proteção ativa":"Aguardando conexão"}</h2>
+          <p>O access token é renovado 30 minutos antes de vencer. Se a API responder 401, o sistema renova e tenta novamente uma única vez.</p>
+          {mlStatus.expires_at&&<div className="guard">Expira em: {new Date(mlStatus.expires_at).toLocaleString("pt-BR")} · renovação automática ativa.</div>}
+          <div className="guard">Access token e refresh token ficam criptografados somente no backend e nunca aparecem no navegador.</div>
+        </article>
+      </div>}
 
       {view === "Publicações" && <div className="columns"><article><p className="eyebrow">FILA DE PUBLICAÇÃO</p><h2>Nenhum envio automático</h2><p>As prévias do Mercado Livre aparecerão aqui antes da aprovação final.</p></article><article><p className="eyebrow">STATUS</p><h2>{commerce.publications} publicação(ões)</h2><div className="guard">Modo seguro ativo: publicação real bloqueada.</div></article></div>}
 
