@@ -26,6 +26,8 @@ from .extension_api import router as extension_router
 from .margin import router as margin_router
 from .agency_router import router as agency_router
 from .reach_router import router as reach_router
+from .local_memory import initialize as initialize_local_memory
+from .local_memory import router as memory_router
 
 
 class Settings(BaseSettings):
@@ -59,11 +61,13 @@ app.include_router(extension_router)
 app.include_router(margin_router)
 app.include_router(agency_router)
 app.include_router(reach_router)
+app.include_router(memory_router)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 
 @app.on_event("startup")
 def start_background_services() -> None:
+    initialize_local_memory()
     start_token_keeper()
 
 
