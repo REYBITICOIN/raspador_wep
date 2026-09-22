@@ -35,7 +35,7 @@ def catalog() -> list[dict]:
     divisions = json.loads(divisions_file.read_text(encoding="utf-8"))["divisions"]
     rows = []
     for division in divisions:
-        for path in sorted((AGENCY_ROOT / division).glob("*.md")):
+        for path in sorted((AGENCY_ROOT / division).rglob("*.md")):
             metadata, _ = _frontmatter(path)
             if not metadata.get("name"):
                 continue

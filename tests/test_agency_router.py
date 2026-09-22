@@ -14,7 +14,7 @@ class AgencyRouterTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         payload = result.json()
         self.assertTrue(payload["available"])
-        self.assertGreaterEqual(payload["agent_count"], 230)
+        self.assertEqual(payload["agent_count"], 279)
         self.assertTrue(payload["lazy_loading"])
         self.assertEqual(payload["computer_access"], "not_granted")
 
