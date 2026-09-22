@@ -158,26 +158,36 @@ def prepare_one(url: str, target: Path, size: int, quality: int) -> dict:
         raise ValueError("Imagem excede 20 MB")
     source = Image.open(io.BytesIO(response.content))
     source = ImageOps.exif_transpose(source).convert("RGB")
+    width = size
+    height = round(size * 1540 / 1200)
+    safe_width = round(width * 0.92)
+    safe_height = round(height * 0.92)
     fitted = ImageOps.contain(
         source,
-        (size, size),
+        (safe_width, safe_height),
         method=Image.Resampling.LANCZOS,
     )
     fitted = fitted.filter(
-        ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3)
+        ImageFilter.UnsharpMask(radius=1.0, percent=105, threshold=3)
     )
-    fitted = ImageEnhance.Contrast(fitted).enhance(1.02)
-    canvas = Image.new("RGB", (size, size), "white")
-    left = (size - fitted.width) // 2
-    top = (size - fitted.height) // 2
+    fitted = ImageEnhance.Contrast(fitted).enhance(1.015)
+    fitted = ImageEnhance.Sharpness(fitted).enhance(1.04)
+    canvas = Image.new("RGB", (width, height), "white")
+    left = (width - fitted.width) // 2
+    top = (height - fitted.height) // 2
     canvas.paste(fitted, (left, top))
-    canvas.save(target, "JPEG", quality=quality, optimize=True)
+    canvas.save(target, "JPEG", quality=quality, optimize=True, dpi=(72, 72))
     return {
         "file": target.name,
-        "width": size,
-        "height": size,
+        "width": width,
+        "height": height,
         "bytes": target.stat().st_size,
-        "profile": f"square_{size}_white",
+        "profile": f"fashion_portrait_{width}x{height}_safe_margin",
+        "crop": "none",
+        "safe_margin_percent": 4,
+        "source_width": source.width,
+        "source_height": source.height,
+        "source_limit": "Nenhum conteúdo fora da fotografia original pode ser recuperado sem geração artificial.",
     }
 
 

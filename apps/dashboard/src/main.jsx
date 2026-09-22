@@ -84,7 +84,7 @@ function App() {
   async function prepareProductImages(productId) {
     setLoading(true); setError("");
     try {
-      const result = await request("/v1/media/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: productId, size: 1200, quality: 94 }) });
+      const result = await request("/v1/media/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: productId, size: 1600, quality: 96 }) });
       setMediaResult(result);
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   }
@@ -106,13 +106,13 @@ function App() {
     if (missing.length) { update(2, "blocked", "Campos ausentes: " + missing.join(", ")); return; }
     update(2, "completed", "Dados comerciais conferidos");
     try {
-      update(3, "working", "Recortando, centralizando e removendo metadados");
+      update(3, "working", "Enquadrando o produto inteiro, ampliando e removendo metadados");
       const media = await request("/v1/media/prepare", {
         method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({product_id: product.id, size: 1200, quality: 94})
+        body: JSON.stringify({product_id: product.id, size: 1600, quality: 96})
       });
       setMediaResult(media);
-      update(3, "completed", media.prepared_count + " imagens prontas em 1200×1200", {images: media.prepared});
+      update(3, "completed", media.prepared_count + " imagens em 1600×2053, sem recorte adicional; limite: foto original do fornecedor", {images: media.prepared});
 
       update(4, "working", "Lendo tamanho, grade e medidas na fonte");
       const profile = await request("/v1/catalog/products/" + product.id + "/size-profile");
