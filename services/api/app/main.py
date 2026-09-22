@@ -14,9 +14,11 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .agents import MEDIA_DIR, router as agents_router
 from .commerce import router as commerce_router
 
 
@@ -44,6 +46,8 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 app.include_router(commerce_router)
+app.include_router(agents_router)
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 data_file = Path(settings.data_dir) / "jobs.json"
 data_file.parent.mkdir(parents=True, exist_ok=True)
