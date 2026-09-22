@@ -16,7 +16,7 @@ const navGroups = [
     ["Catálogo", Package], ["Agentes", Activity], ["Canais", Store], ["Publicações", Send]
   ]},
   { label: "Inteligência", items: [
-    ["Provedores", Bot], ["Banco & segurança", Database]
+    ["MCP & computador", ShieldCheck], ["Provedores", Bot], ["Banco & segurança", Database]
   ]}
 ];
 
@@ -30,7 +30,7 @@ async function request(path, options) {
 const Badge = ({ status }) => <span className={"badge " + status}>{status}</span>;
 
 function App() {
-  const [view, setView] = useState("Execução");
+  const [view, setView] = useState("MCP & computador");
   const [health, setHealth] = useState(null);
   const [providers, setProviders] = useState([]);
   const [stats, setStats] = useState({ total_jobs: 0, completed: 0, failed: 0, pages: 0 });
@@ -51,18 +51,27 @@ function App() {
   const [seoDraft, setSeoDraft] = useState(null);
   const [importUrl, setImportUrl] = useState("");
   const [mlStatus, setMlStatus] = useState({state: "loading", connected: false});
+  const [mcpScan, setMcpScan] = useState({servers: [], errors: [], policy: null});
+  const [mcpLoading, setMcpLoading] = useState(false);
 
   async function refresh() {
-    const [h, p, s, j, c, products, a, ml] = await Promise.all([
+    const [h, p, s, j, c, products, a, ml, mcp] = await Promise.all([
       request("/health"), request("/v1/providers"), request("/v1/stats"), request("/v1/jobs"),
       request("/v1/commerce/overview"), request("/v1/catalog/products"), request("/v1/agents"),
-      request("/v1/channels/mercadolivre/status")
+      request("/v1/channels/mercadolivre/status"), request("/v1/mcp/scan-local", {method: "POST"})
     ]);
     setHealth(h); setProviders(p.providers || []); setStats(s); setJobs(j);
-    setCommerce(c); setCatalog(products); setAgents(a.agents || []); setMlStatus(ml);
+    setCommerce(c); setCatalog(products); setAgents(a.agents || []); setMlStatus(ml); setMcpScan(mcp);
   }
 
   useEffect(() => { refresh().catch(e => setError(e.message)); }, []);
+
+  async function scanMcp() {
+    setMcpLoading(true); setError("");
+    try {
+      setMcpScan(await request("/v1/mcp/scan-local", {method: "POST"}));
+    } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
+  }
 
   async function connectMercadoLivre() {
     setLoading(true); setError("");
@@ -302,6 +311,39 @@ function App() {
       </div>}
 
       {view === "Publicações" && <div className="columns"><article><p className="eyebrow">FILA DE PUBLICAÇÃO</p><h2>Nenhum envio automático</h2><p>As prévias do Mercado Livre aparecerão aqui antes da aprovação final.</p></article><article><p className="eyebrow">STATUS</p><h2>{commerce.publications} publicação(ões)</h2><div className="guard">Modo seguro ativo: publicação real bloqueada.</div></article></div>}
+
+      {view === "MCP & computador" && <div className="mcp-layout">
+        <article className="mcp-console">
+          <div className="title"><div><p className="eyebrow">CENTRAL MCP</p><h2>Ferramentas detectadas</h2></div>
+            <button className="ghost" disabled={mcpLoading} onClick={scanMcp}>{mcpLoading?"ANALISANDO...":"ANALISAR NOVAMENTE"}</button>
+          </div>
+          <div className="mcp-summary">
+            <div><strong>{mcpScan.configs_found||0}</strong><small>CONFIGURAÇÕES</small></div>
+            <div><strong>{mcpScan.servers?.length||0}</strong><small>SERVIDORES</small></div>
+            <div><strong>{mcpScan.servers?.filter(server=>server.risk==="high").length||0}</strong><small>ALTO RISCO</small></div>
+          </div>
+          {mcpScan.servers?.map(server=><div className="mcp-server" key={server.name}>
+            <div className="mcp-server-head"><div className="logo">MC</div><div><b>{server.name}</b><small>{server.command} {server.args?.join(" ")}</small></div>
+              <span className={server.command_found?"ok":"off"}>{server.command_found?"DETECTADO":"COMANDO AUSENTE"}</span></div>
+            <div className="mcp-flow">
+              <div className="done"><i>1</i><b>Descoberta</b><small>Configuração localizada</small></div>
+              <div className="done"><i>2</i><b>Validação</b><small>Comando {server.command_found?"confirmado":"não encontrado"}</small></div>
+              <div className="attention"><i>3</i><b>Segurança</b><small>{server.risk==="high"?"Controle real do Windows":"Revisão necessária"}</small></div>
+              <div className="blocked"><i>4</i><b>Conexão</b><small>Aguardando aprovação explícita</small></div>
+            </div>
+            {server.risk_reasons?.map(reason=><div className="mcp-warning" key={reason}>⚠ {reason}</div>)}
+          </div>)}
+          {!mcpScan.servers?.length&&<div className="empty">Nenhum servidor MCP encontrado.</div>}
+        </article>
+        <article className="mcp-policy">
+          <p className="eyebrow">AGENTE DE DECISÃO</p><h2>Política inteligente</h2>
+          <div className="policy-row safe"><b>AUTOMÁTICO</b><span>Descobrir, ler metadados, validar JSON e verificar executáveis.</span></div>
+          <div className="policy-row review"><b>PEDE APROVAÇÃO</b><span>Alterar configuração, iniciar MCP, autenticar conta ou escrever arquivos.</span></div>
+          <div className="policy-row danger"><b>BLOQUEADO</b><span>Excluir arquivos, alterar registro, executar shell ou clicar em confirmação sem autorização.</span></div>
+          <div className="guard">O agente recomenda a conexão e explica o risco. Carlos continua com a decisão final.</div>
+          <div className="mcp-live"><i></i><div><b>MONITOR MCP ATIVO</b><small>Leitura segura · nenhuma conexão silenciosa</small></div></div>
+        </article>
+      </div>}
 
       {view === "Provedores" && <div className="columns providers"><article><p className="eyebrow">MODEL ROUTER</p><h2>Conexões de inteligência</h2><p>Uma API central seleciona o modelo, mas cada empresa usa sua própria chave.</p>{providers.map(p=><div className="provider" key={p.id}><div className={"logo "+p.id}>{p.id==="nvidia"?"N":"G"}</div><div><b>{p.id==="nvidia"?"NVIDIA NIM":"xAI · GROK"}</b><small>{p.model||"Modelo ainda não definido"}</small></div><span className={p.configured?"ok":"off"}>{p.configured?(p.enabled?"ATIVO":"BLOQUEADO"):"SEM CHAVE"}</span></div>)}</article><article><p className="eyebrow">COFRE DE SEGREDOS</p><h2>Configuração das APIs</h2><code>NVIDIA_API_KEY=••••••••</code><code>XAI_API_KEY=••••••••</code><p>As chaves ficam no servidor. O navegador recebe apenas o estado da conexão.</p><div className="guard">Grok permanece bloqueado enquanto <b>ALLOW_PAID_MODELS=false</b>.</div></article></div>}
 
