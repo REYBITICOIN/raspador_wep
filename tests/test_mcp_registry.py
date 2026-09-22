@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -42,6 +43,34 @@ class MCPRegistryTests(unittest.TestCase):
         self.assertEqual(server["risk"], "high")
         self.assertTrue(server["requires_human_approval"])
         self.assertFalse(server["auto_start_allowed"])
+
+    def test_safe_probe_reports_real_handshake_shape(self):
+        completed = SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({
+                "connected": True,
+                "tool_count": 20,
+                "tools": ["Wait"],
+                "safe_test_passed": True,
+                "writes_performed": False,
+            }) + "\n",
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            python = Path(temp) / "python.exe"
+            probe = Path(temp) / "probe.py"
+            python.touch()
+            probe.touch()
+            with patch("services.api.app.mcp_registry.WINDOWS_MCP_PYTHON", python), patch(
+                "services.api.app.mcp_registry.WINDOWS_MCP_PROBE", probe
+            ), patch("services.api.app.mcp_registry.subprocess.run", return_value=completed):
+                response = self.client.post("/v1/mcp/probe/windows-sistema")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["connected"])
+        self.assertTrue(payload["safe_test_passed"])
+        self.assertFalse(payload["writes_performed"])
+        self.assertEqual(payload["execution_policy"], "safe_probe_only")
 
     def test_status_reports_discovery_mode(self):
         with patch(

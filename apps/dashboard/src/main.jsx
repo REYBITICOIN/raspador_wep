@@ -53,6 +53,7 @@ function App() {
   const [mlStatus, setMlStatus] = useState({state: "loading", connected: false});
   const [mcpScan, setMcpScan] = useState({servers: [], errors: [], policy: null});
   const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpProbe, setMcpProbe] = useState(null);
 
   async function refresh() {
     const [h, p, s, j, c, products, a, ml, mcp] = await Promise.all([
@@ -70,6 +71,13 @@ function App() {
     setMcpLoading(true); setError("");
     try {
       setMcpScan(await request("/v1/mcp/scan-local", {method: "POST"}));
+    } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
+  }
+
+  async function probeMcp() {
+    setMcpLoading(true); setError(""); setMcpProbe(null);
+    try {
+      setMcpProbe(await request("/v1/mcp/probe/windows-sistema", {method: "POST"}));
     } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
   }
 
@@ -341,6 +349,12 @@ function App() {
           <div className="policy-row review"><b>PEDE APROVAÇÃO</b><span>Alterar configuração, iniciar MCP, autenticar conta ou escrever arquivos.</span></div>
           <div className="policy-row danger"><b>BLOQUEADO</b><span>Excluir arquivos, alterar registro, executar shell ou clicar em confirmação sem autorização.</span></div>
           <div className="guard">O agente recomenda a conexão e explica o risco. Carlos continua com a decisão final.</div>
+          <button className="mcp-probe-button" disabled={mcpLoading} onClick={probeMcp}>{mcpLoading?"TESTANDO CONEXÃO...":"TESTAR CONEXÃO SEGURA"}</button>
+          {mcpProbe&&<div className="mcp-probe-result">
+            <b>✓ HANDSHAKE MCP APROVADO</b>
+            <span>{mcpProbe.tool_count} ferramentas anunciadas · teste {mcpProbe.safe_test} aprovado</span>
+            <small>Nenhuma escrita realizada · transporte {mcpProbe.transport}</small>
+          </div>}
           <div className="mcp-live"><i></i><div><b>MONITOR MCP ATIVO</b><small>Leitura segura · nenhuma conexão silenciosa</small></div></div>
         </article>
       </div>}

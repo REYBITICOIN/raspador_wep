@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -20,6 +21,9 @@ HIGH_RISK_TOOLS = {
     "click", "type", "drag", "shortcut", "process.kill",
 }
 DISCOVERY_PATHS = ("/.well-known/mcp.json", "/.well-known/webmcp.json", "/mcp.json")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+WINDOWS_MCP_PYTHON = PROJECT_ROOT / ".venv-windows-mcp" / "Scripts" / "python.exe"
+WINDOWS_MCP_PROBE = PROJECT_ROOT / "scripts" / "probe_windows_mcp.py"
 
 
 class DiscoveryRequest(BaseModel):
@@ -139,6 +143,35 @@ def status() -> dict:
 def scan_local() -> dict:
     result = scan_local_configs()
     result["policy"] = policy()
+    return result
+
+
+@router.post("/probe/windows-sistema")
+def probe_windows_system() -> dict:
+    if not WINDOWS_MCP_PYTHON.exists() or not WINDOWS_MCP_PROBE.exists():
+        raise HTTPException(503, "Ambiente isolado do Windows-MCP não está instalado")
+    try:
+        completed = subprocess.run(
+            [str(WINDOWS_MCP_PYTHON), str(WINDOWS_MCP_PROBE)],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=75,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(504, "Windows-MCP não respondeu dentro de 75 segundos") from exc
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    if not lines:
+        raise HTTPException(502, "Windows-MCP não devolveu o resultado do teste")
+    try:
+        result = json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise HTTPException(502, "Resposta inválida do teste Windows-MCP") from exc
+    result["exit_code"] = completed.returncode
+    result["execution_policy"] = "safe_probe_only"
+    if completed.returncode != 0 or not result.get("connected"):
+        raise HTTPException(502, result)
     return result
 
 
