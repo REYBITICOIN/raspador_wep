@@ -1,4 +1,26 @@
 const API = "http://127.0.0.1:8091";
+const CONTENT_SCRIPT_ID = "toca-commerce-ray-x";
+const CONTENT_MATCHES = [
+  "https://*.mercadolivre.com.br/*",
+  "https://*.mercadolibre.com/*",
+  "https://*.shopee.com.br/*",
+  "https://*.amazon.com.br/*"
+];
+
+async function ensureContentScript() {
+  const existing = await chrome.scripting.getRegisteredContentScripts({ids: [CONTENT_SCRIPT_ID]});
+  if (existing.length) return;
+  await chrome.scripting.registerContentScripts([{
+    id: CONTENT_SCRIPT_ID,
+    matches: CONTENT_MATCHES,
+    js: ["content.js"],
+    css: ["styles.css"],
+    runAt: "document_idle",
+    persistAcrossSessions: true
+  }]);
+}
+
+ensureContentScript().catch(error => console.error("Falha ao registrar Raio-X:", error));
 
 async function api(path, payload) {
   const response = await fetch(API + path, {
