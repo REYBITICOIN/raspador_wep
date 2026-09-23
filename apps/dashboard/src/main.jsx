@@ -54,15 +54,17 @@ function App() {
   const [mcpScan, setMcpScan] = useState({servers: [], errors: [], policy: null});
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpProbe, setMcpProbe] = useState(null);
+  const [mcpApprovals, setMcpApprovals] = useState({items: [], pending: 0});
 
   async function refresh() {
-    const [h, p, s, j, c, products, a, ml, mcp] = await Promise.all([
+    const [h, p, s, j, c, products, a, ml, mcp, approvals] = await Promise.all([
       request("/health"), request("/v1/providers"), request("/v1/stats"), request("/v1/jobs"),
       request("/v1/commerce/overview"), request("/v1/catalog/products"), request("/v1/agents"),
-      request("/v1/channels/mercadolivre/status"), request("/v1/mcp/scan-local", {method: "POST"})
+      request("/v1/channels/mercadolivre/status"), request("/v1/mcp/scan-local", {method: "POST"}),
+      request("/v1/mcp/approvals")
     ]);
     setHealth(h); setProviders(p.providers || []); setStats(s); setJobs(j);
-    setCommerce(c); setCatalog(products); setAgents(a.agents || []); setMlStatus(ml); setMcpScan(mcp);
+    setCommerce(c); setCatalog(products); setAgents(a.agents || []); setMlStatus(ml); setMcpScan(mcp); setMcpApprovals(approvals);
   }
 
   useEffect(() => { refresh().catch(e => setError(e.message)); }, []);
@@ -78,6 +80,28 @@ function App() {
     setMcpLoading(true); setError(""); setMcpProbe(null);
     try {
       setMcpProbe(await request("/v1/mcp/probe/windows-sistema", {method: "POST"}));
+    } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
+  }
+
+  async function createApprovalTest() {
+    setMcpLoading(true); setError("");
+    try {
+      await request("/v1/mcp/approvals", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({tool: "Snapshot", purpose: "Capturar estado visual para diagnóstico", arguments: {use_vision: false}})
+      });
+      setMcpApprovals(await request("/v1/mcp/approvals"));
+    } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
+  }
+
+  async function decideMcpApproval(id, decision) {
+    setMcpLoading(true); setError("");
+    try {
+      await request("/v1/mcp/approvals/" + id + "/decision", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({decision, note: decision === "approved" ? "Aprovado por Carlos no painel" : "Rejeitado por Carlos no painel"})
+      });
+      setMcpApprovals(await request("/v1/mcp/approvals"));
     } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
   }
 
@@ -342,6 +366,18 @@ function App() {
             {server.risk_reasons?.map(reason=><div className="mcp-warning" key={reason}>⚠ {reason}</div>)}
           </div>)}
           {!mcpScan.servers?.length&&<div className="empty">Nenhum servidor MCP encontrado.</div>}
+          <div className="approval-title"><div><p className="eyebrow">FILA DE APROVAÇÃO</p><h2>{mcpApprovals.pending} pendente(s)</h2></div>
+            <button className="ghost" disabled={mcpLoading} onClick={createApprovalTest}>CRIAR TESTE SEGURO</button></div>
+          {mcpApprovals.items?.map(item=><div className={"approval-card "+item.state} key={item.id}>
+            <div><b>{item.tool}</b><span className={"risk "+item.risk}>{item.risk==="high"?"ALTO RISCO":item.risk==="read_only"?"SOMENTE LEITURA":"REVISAR"}</span></div>
+            <p>{item.purpose}</p><code>{JSON.stringify(item.arguments)}</code>
+            <small>{new Date(item.created_at).toLocaleString("pt-BR")} · {item.executed?"EXECUTADO":"NÃO EXECUTADO"}</small>
+            {item.state==="pending"?<div className="approval-actions">
+              <button disabled={mcpLoading} onClick={()=>decideMcpApproval(item.id,"approved")}>APROVAR</button>
+              <button className="reject" disabled={mcpLoading} onClick={()=>decideMcpApproval(item.id,"rejected")}>REJEITAR</button>
+            </div>:<div className={"approval-result "+item.state}>{item.state==="approved"?"APROVADO · AGUARDA EXECUÇÃO":"REJEITADO · BLOQUEADO"}</div>}
+          </div>)}
+          {!mcpApprovals.items?.length&&<div className="empty compact">Nenhum pedido aguardando decisão.</div>}
         </article>
         <article className="mcp-policy">
           <p className="eyebrow">AGENTE DE DECISÃO</p><h2>Política inteligente</h2>

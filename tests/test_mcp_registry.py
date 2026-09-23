@@ -72,6 +72,29 @@ class MCPRegistryTests(unittest.TestCase):
         self.assertFalse(payload["writes_performed"])
         self.assertEqual(payload["execution_policy"], "safe_probe_only")
 
+    def test_approval_queue_persists_decision_without_execution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            approvals = Path(temp) / "approvals.json"
+            with patch("services.api.app.mcp_registry.APPROVALS_FILE", approvals):
+                created = self.client.post("/v1/mcp/approvals", json={
+                    "tool": "PowerShell",
+                    "purpose": "Listar processos para diagnóstico",
+                    "arguments": {"command": "Get-Process"},
+                })
+                self.assertEqual(created.status_code, 201)
+                item = created.json()
+                self.assertEqual(item["risk"], "high")
+                self.assertFalse(item["executed"])
+                decision = self.client.post(
+                    f"/v1/mcp/approvals/{item['id']}/decision",
+                    json={"decision": "approved", "note": "Aprovação de teste"},
+                )
+                listed = self.client.get("/v1/mcp/approvals")
+        self.assertEqual(decision.status_code, 200)
+        self.assertEqual(decision.json()["state"], "approved")
+        self.assertFalse(decision.json()["executed"])
+        self.assertEqual(listed.json()["pending"], 0)
+
     def test_status_reports_discovery_mode(self):
         with patch(
             "services.api.app.mcp_registry.scan_local_configs",

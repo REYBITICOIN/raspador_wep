@@ -5,13 +5,16 @@ import os
 import shutil
 import socket
 import subprocess
+from datetime import datetime, timezone
+from threading import Lock
+from uuid import uuid4
 from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 router = APIRouter(prefix="/v1/mcp", tags=["mcp-intelligence"])
 
@@ -24,10 +27,23 @@ DISCOVERY_PATHS = ("/.well-known/mcp.json", "/.well-known/webmcp.json", "/mcp.js
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 WINDOWS_MCP_PYTHON = PROJECT_ROOT / ".venv-windows-mcp" / "Scripts" / "python.exe"
 WINDOWS_MCP_PROBE = PROJECT_ROOT / "scripts" / "probe_windows_mcp.py"
+APPROVALS_FILE = PROJECT_ROOT / "data" / "mcp_approvals.json"
+APPROVALS_LOCK = Lock()
 
 
 class DiscoveryRequest(BaseModel):
     url: HttpUrl
+
+
+class ApprovalRequest(BaseModel):
+    tool: str
+    purpose: str
+    arguments: dict = Field(default_factory=dict)
+
+
+class DecisionRequest(BaseModel):
+    decision: str
+    note: str = ""
 
 
 def _config_candidates() -> list[Path]:
@@ -144,6 +160,83 @@ def scan_local() -> dict:
     result = scan_local_configs()
     result["policy"] = policy()
     return result
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _load_approvals() -> list[dict]:
+    try:
+        payload = json.loads(APPROVALS_FILE.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, list) else []
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_approvals(items: list[dict]) -> None:
+    APPROVALS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = APPROVALS_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(APPROVALS_FILE)
+
+
+def _approval_risk(tool: str) -> str:
+    normalized = tool.strip().lower()
+    if normalized in HIGH_RISK_TOOLS:
+        return "high"
+    if normalized in READ_ONLY_TOOLS:
+        return "read_only"
+    return "review"
+
+
+@router.get("/approvals")
+def list_approvals() -> dict:
+    with APPROVALS_LOCK:
+        items = _load_approvals()
+    return {"items": list(reversed(items)), "pending": sum(item["state"] == "pending" for item in items)}
+
+
+@router.post("/approvals", status_code=201)
+def create_approval(request: ApprovalRequest) -> dict:
+    if not request.tool.strip() or len(request.purpose.strip()) < 3:
+        raise HTTPException(400, "Ferramenta e finalidade são obrigatórias")
+    item = {
+        "id": str(uuid4()),
+        "tool": request.tool.strip(),
+        "purpose": request.purpose.strip(),
+        "arguments": request.arguments,
+        "risk": _approval_risk(request.tool),
+        "state": "pending",
+        "created_at": _now(),
+        "decided_at": None,
+        "decision_note": "",
+        "executed": False,
+    }
+    with APPROVALS_LOCK:
+        items = _load_approvals()
+        items.append(item)
+        _save_approvals(items)
+    return item
+
+
+@router.post("/approvals/{approval_id}/decision")
+def decide_approval(approval_id: str, request: DecisionRequest) -> dict:
+    if request.decision not in {"approved", "rejected"}:
+        raise HTTPException(400, "Decisão deve ser approved ou rejected")
+    with APPROVALS_LOCK:
+        items = _load_approvals()
+        item = next((entry for entry in items if entry["id"] == approval_id), None)
+        if not item:
+            raise HTTPException(404, "Pedido de aprovação não encontrado")
+        if item["state"] != "pending":
+            raise HTTPException(409, "Pedido já foi decidido")
+        item["state"] = request.decision
+        item["decided_at"] = _now()
+        item["decision_note"] = request.note.strip()[:500]
+        item["executed"] = False
+        _save_approvals(items)
+    return item
 
 
 @router.post("/probe/windows-sistema")
