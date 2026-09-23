@@ -118,6 +118,30 @@ class ExtensionApiTests(unittest.TestCase):
         self.assertEqual(history["competitors"][0]["price_change"], -5.0)
         self.assertEqual(history["competitors"][0]["trend"], "rising")
 
+    def test_search_intelligence_uses_observed_title_frequency(self):
+        second_product = {
+            **self.search_payload["products"][0], "position": 2, "listing_id": "MLB999",
+            "title": "Calça Flare Feminina Cintura Alta", "price": 64.1,
+            "seller": "OUTRA LOJA", "sponsored": False, "official_store": False,
+        }
+        snapshot = {
+            **self.search_payload, "visible_results": 2, "captured_results": 2,
+            "products": [self.search_payload["products"][0], second_product],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "search-snapshots.json"
+            with patch("services.api.app.extension_api.SEARCH_SNAPSHOTS_FILE", target):
+                self.client.post("/v1/extension/search-snapshots", json=snapshot)
+                response = self.client.get("/v1/extension/search-intelligence", params={"query": "CALCA LEGGING FLARE"})
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertTrue(result["found"])
+        terms = {item["term"]: item for item in result["keyword_frequency"]}
+        self.assertEqual(terms["calca"]["count"], 2)
+        self.assertEqual(terms["flare"]["coverage_percent"], 100.0)
+        self.assertEqual(result["market"]["median_price"], 50.0)
+        self.assertIn("não representa volume de busca", result["method"])
+
     def test_unknown_marketplace_is_rejected(self):
         payload = {**self.payload, "marketplace": "desconhecido"}
         response = self.client.post("/v1/extension/snapshots", json=payload)

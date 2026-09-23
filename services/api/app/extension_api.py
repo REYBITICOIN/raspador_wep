@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+import re
+from statistics import mean, median
 from threading import Lock
-from statistics import mean
+import unicodedata
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -132,6 +135,69 @@ def normalized_query(value: str) -> str:
 
 def product_key(product: dict) -> str:
     return product.get("listing_id") or normalized_query(product.get("title") or "")
+
+
+STOPWORDS = {
+    "com", "para", "por", "sem", "uma", "das", "dos", "que", "de", "da", "do", "em",
+    "no", "na", "nos", "nas", "ao", "aos", "e", "ou", "the", "kit", "unidade", "unidades",
+}
+
+
+def title_tokens(title: str) -> list[str]:
+    normalized = unicodedata.normalize("NFKD", title.casefold())
+    plain = "".join(char for char in normalized if not unicodedata.combining(char))
+    return [word for word in re.findall(r"[a-z0-9]+", plain) if len(word) >= 3 and word not in STOPWORDS and not word.isdigit()]
+
+
+def frequency_rows(counter: Counter, total: int, limit: int) -> list[dict]:
+    return [
+        {"term": term, "count": count, "coverage_percent": round(count / total * 100, 1)}
+        for term, count in counter.most_common(limit)
+    ] if total else []
+
+
+@router.get("/search-intelligence")
+def search_intelligence(query: str) -> dict:
+    wanted = normalized_query(query)
+    candidates = [row for row in read_list(SEARCH_SNAPSHOTS_FILE) if normalized_query(row.get("query", "")) == wanted]
+    latest = max(candidates, key=lambda row: row.get("captured_at", ""), default=None)
+    if not latest:
+        return {"query": query, "found": False, "keyword_frequency": [], "bigrams": [], "market": {},
+                "method": "Nenhuma captura salva para esta busca."}
+    products = latest.get("products", [])
+    words: Counter = Counter()
+    pairs: Counter = Counter()
+    sellers: Counter = Counter()
+    for product in products:
+        tokens = title_tokens(product.get("title") or "")
+        words.update(set(tokens))
+        pairs.update(set(" ".join(pair) for pair in zip(tokens, tokens[1:])))
+        if product.get("seller"):
+            sellers[product["seller"]] += 1
+    prices = [item["price"] for item in products if item.get("price") is not None]
+    total = len(products)
+    share = lambda count: round(count / total * 100, 1) if total else 0
+    return {
+        "query": query, "found": True, "snapshot_id": latest.get("id"),
+        "captured_at": latest.get("captured_at"), "result_count": total,
+        "keyword_frequency": frequency_rows(words, total, 25),
+        "bigrams": frequency_rows(pairs, total, 15),
+        "top_sellers": frequency_rows(sellers, total, 10),
+        "market": {
+            "sponsored_count": latest.get("sponsored_count", 0),
+            "sponsored_share_percent": share(latest.get("sponsored_count", 0)),
+            "official_store_count": latest.get("official_store_count", 0),
+            "official_store_share_percent": share(latest.get("official_store_count", 0)),
+            "free_shipping_count": latest.get("free_shipping_count", 0),
+            "free_shipping_share_percent": share(latest.get("free_shipping_count", 0)),
+            "minimum_price": min(prices) if prices else None,
+            "maximum_price": max(prices) if prices else None,
+            "average_price": round(mean(prices), 2) if prices else None,
+            "median_price": round(median(prices), 2) if prices else None,
+            "rating_coverage_percent": share(sum(item.get("rating") is not None for item in products)),
+        },
+        "method": "Frequência observada nos títulos da captura mais recente; não representa volume de busca nem vendas estimadas.",
+    }
 
 
 @router.get("/search-history")

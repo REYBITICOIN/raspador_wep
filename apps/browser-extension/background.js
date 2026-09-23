@@ -59,6 +59,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => sendResponse({ok: false, error: error.message}));
     return true;
   }
+  if (message?.type === "TOCA_GET_SEARCH_INTELLIGENCE") {
+    apiGet("/v1/extension/search-intelligence?query=" + encodeURIComponent(message.query || ""))
+      .then(intelligence => sendResponse({ok: true, intelligence}))
+      .catch(error => sendResponse({ok: false, error: error.message}));
+    return true;
+  }
   if (message?.type === "TOCA_CALCULATE_MARGIN") {
     api("/v1/margins/calculate", message.payload)
       .then(result => sendResponse({ok: true, result}))

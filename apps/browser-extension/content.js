@@ -280,6 +280,41 @@
     return card;
   }
 
+  function renderIntelligence(container, intelligence) {
+    container.replaceChildren();
+    const title = document.createElement("strong");
+    title.textContent = "INTELIGÊNCIA DOS TÍTULOS";
+    container.append(title);
+    if (!intelligence.found) {
+      const empty = document.createElement("p");
+      empty.textContent = "Salve esta pesquisa para gerar a análise.";
+      container.append(empty);
+      return;
+    }
+    const market = intelligence.market;
+    const metrics = document.createElement("p");
+    metrics.textContent = `Preço médio R$ ${market.average_price?.toFixed(2) || "—"} · mediana R$ ${market.median_price?.toFixed(2) || "—"} · patrocinados ${market.sponsored_share_percent}% · lojas oficiais ${market.official_store_share_percent}%`;
+    container.append(metrics);
+    const words = document.createElement("div");
+    words.className = "toca-keywords";
+    words.textContent = intelligence.keyword_frequency.slice(0, 10).map(item => `${item.term} (${item.count})`).join(" · ");
+    container.append(words);
+    const pairs = document.createElement("div");
+    pairs.className = "toca-keywords toca-pairs";
+    pairs.textContent = "Combinações: " + intelligence.bigrams.slice(0, 6).map(item => `${item.term} (${item.count})`).join(" · ");
+    container.append(pairs);
+    const method = document.createElement("small");
+    method.textContent = intelligence.method;
+    container.append(method);
+  }
+
+  function loadIntelligence(container, query) {
+    chrome.runtime.sendMessage({type: "TOCA_GET_SEARCH_INTELLIGENCE", query}, response => {
+      if (response?.ok) renderIntelligence(container, response.intelligence);
+      else container.textContent = "Inteligência indisponível: " + (response?.error || "sem conexão");
+    });
+  }
+
   function renderHistory(container, history) {
     container.replaceChildren();
     const title = document.createElement("strong");
@@ -333,6 +368,11 @@
     list.className = "toca-search-list";
     data.products.slice(0, 10).forEach(product => list.append(searchProductCard(product)));
     body.append(list);
+    const intelligenceBox = document.createElement("div");
+    intelligenceBox.className = "toca-intelligence";
+    intelligenceBox.textContent = "CARREGANDO INTELIGÊNCIA...";
+    body.append(intelligenceBox);
+    loadIntelligence(intelligenceBox, data.query);
     const historyBox = document.createElement("div");
     historyBox.className = "toca-history";
     historyBox.textContent = "CARREGANDO HISTÓRICO...";
@@ -354,6 +394,7 @@
         save.disabled = false;
         save.textContent = response?.ok ? "PESQUISA SALVA ✓" : "ERRO: " + (response?.error || "sem conexão");
         if (response?.ok) {
+          loadIntelligence(intelligenceBox, data.query);
           chrome.runtime.sendMessage({type: "TOCA_GET_SEARCH_HISTORY", query: data.query}, historyResponse => {
             if (historyResponse?.ok) renderHistory(historyBox, historyResponse.history);
           });
