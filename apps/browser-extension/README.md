@@ -5,7 +5,7 @@
 1. Abra `chrome://extensions`.
 2. Ative **Modo do desenvolvedor**.
 3. Clique em **Carregar sem compactação**.
-4. Selecione `C:\RASPADOR_WEB\apps\browser-extension`.
+4. Selecione `G:\TOCA_COMMERCE_OS\apps\browser-extension`.
 5. Abra uma página de produto compatível e recarregue a página.
 
 ## Comportamento seguro
