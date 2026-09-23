@@ -27,6 +27,8 @@ DISCOVERY_PATHS = ("/.well-known/mcp.json", "/.well-known/webmcp.json", "/mcp.js
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 WINDOWS_MCP_PYTHON = PROJECT_ROOT / ".venv-windows-mcp" / "Scripts" / "python.exe"
 WINDOWS_MCP_PROBE = PROJECT_ROOT / "scripts" / "probe_windows_mcp.py"
+WINDOWS_MCP_SAFE_EXECUTOR = PROJECT_ROOT / "scripts" / "execute_windows_mcp_safe.py"
+SAFE_EXECUTION_TOOLS = {"Wait", "Snapshot"}
 APPROVALS_FILE = PROJECT_ROOT / "data" / "mcp_approvals.json"
 APPROVALS_LOCK = Lock()
 
@@ -212,6 +214,8 @@ def create_approval(request: ApprovalRequest) -> dict:
         "decided_at": None,
         "decision_note": "",
         "executed": False,
+        "execution_state": "awaiting_approval",
+        "execution_result": None,
     }
     with APPROVALS_LOCK:
         items = _load_approvals()
@@ -235,8 +239,58 @@ def decide_approval(approval_id: str, request: DecisionRequest) -> dict:
         item["decided_at"] = _now()
         item["decision_note"] = request.note.strip()[:500]
         item["executed"] = False
+        item["execution_state"] = "awaiting_execution" if request.decision == "approved" else "blocked"
         _save_approvals(items)
     return item
+
+
+@router.post("/approvals/{approval_id}/execute")
+def execute_approval(approval_id: str) -> dict:
+    with APPROVALS_LOCK:
+        items = _load_approvals()
+        item = next((entry for entry in items if entry["id"] == approval_id), None)
+        if not item:
+            raise HTTPException(404, "Pedido de aprovação não encontrado")
+        if item["state"] != "approved":
+            raise HTTPException(403, "Somente pedidos aprovados podem executar")
+        if item.get("executed") or item.get("execution_state") == "running":
+            raise HTTPException(409, "Pedido já foi executado ou está em execução")
+        if item.get("risk") != "read_only":
+            raise HTTPException(403, "Somente ações classificadas como leitura podem executar")
+        if item["tool"] not in SAFE_EXECUTION_TOOLS:
+            raise HTTPException(403, "Ferramenta ainda não liberada para execução")
+        item["execution_state"] = "running"
+        _save_approvals(items)
+    try:
+        completed = subprocess.run(
+            [
+                str(WINDOWS_MCP_PYTHON),
+                str(WINDOWS_MCP_SAFE_EXECUTOR),
+                item["tool"],
+                json.dumps(item["arguments"], ensure_ascii=False),
+            ],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+        lines = [line for line in completed.stdout.splitlines() if line.strip()]
+        result = json.loads(lines[-1]) if lines else {"success": False, "error": "Sem resposta"}
+    except (subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        result = {"success": False, "error": str(exc)[:500]}
+        completed = None
+    with APPROVALS_LOCK:
+        items = _load_approvals()
+        stored = next(entry for entry in items if entry["id"] == approval_id)
+        stored["executed"] = bool(result.get("success"))
+        stored["execution_state"] = "completed" if result.get("success") else "failed"
+        stored["executed_at"] = _now()
+        stored["execution_result"] = result
+        _save_approvals(items)
+    if not result.get("success"):
+        raise HTTPException(502, result)
+    return stored
 
 
 @router.post("/probe/windows-sistema")

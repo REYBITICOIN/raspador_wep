@@ -105,6 +105,14 @@ function App() {
     } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
   }
 
+  async function executeMcpApproval(id) {
+    setMcpLoading(true); setError("");
+    try {
+      await request("/v1/mcp/approvals/" + id + "/execute", {method: "POST"});
+      setMcpApprovals(await request("/v1/mcp/approvals"));
+    } catch (e) { setError(e.message); } finally { setMcpLoading(false); }
+  }
+
   async function connectMercadoLivre() {
     setLoading(true); setError("");
     try {
@@ -375,7 +383,11 @@ function App() {
             {item.state==="pending"?<div className="approval-actions">
               <button disabled={mcpLoading} onClick={()=>decideMcpApproval(item.id,"approved")}>APROVAR</button>
               <button className="reject" disabled={mcpLoading} onClick={()=>decideMcpApproval(item.id,"rejected")}>REJEITAR</button>
-            </div>:<div className={"approval-result "+item.state}>{item.state==="approved"?"APROVADO · AGUARDA EXECUÇÃO":"REJEITADO · BLOQUEADO"}</div>}
+            </div>:item.state==="approved"&&!item.executed?<div className="approval-actions">
+              <button disabled={mcpLoading||item.risk!=="read_only"} onClick={()=>executeMcpApproval(item.id)}>EXECUTAR AGORA</button>
+              <span className="approval-result approved">{item.risk==="read_only"?"APROVADO · LEITURA SEGURA":"APROVADO · EXECUÇÃO BLOQUEADA"}</span>
+            </div>:<div className={"approval-result "+item.state}>{item.executed?"EXECUÇÃO CONCLUÍDA":"REJEITADO · BLOQUEADO"}</div>}
+            {item.execution_result&&<pre className="execution-result">{JSON.stringify(item.execution_result,null,2)}</pre>}
           </div>)}
           {!mcpApprovals.items?.length&&<div className="empty compact">Nenhum pedido aguardando decisão.</div>}
         </article>
