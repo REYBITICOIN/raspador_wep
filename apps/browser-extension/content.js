@@ -134,7 +134,10 @@
     const box = document.createElement("div");
     box.className = "toca-margin";
     box.innerHTML = `<strong>CALCULADORA DE LUCRO AUDITÁVEL</strong>
-      <small>Taxas manuais até a cotação oficial da conta estar conectada.</small>
+      <small data-fee-source>Taxas manuais até a cotação oficial da conta estar conectada.</small>
+      <label>Categoria ML <input data-category placeholder="MLB1234"></label>
+      <label>Tipo de anúncio <select data-listing-type><option value="gold_special">Clássico</option><option value="gold_pro">Premium</option></select></label>
+      <button data-quote type="button">BUSCAR TAXA OFICIAL ML</button>
       <label>Custo do produto <input data-cost type="number" min="0" step="0.01"></label>
       <label>Comissão ML % <input data-commission type="number" min="0" max="100" step="0.01"></label>
       <label>Impostos % <input data-tax type="number" min="0" max="100" step="0.01"></label>
@@ -146,7 +149,34 @@
       <label>Margem desejada % <input data-desired type="number" min="0" max="99" step="0.01" value="20"></label>
       <button type="button">CALCULAR LUCRO REAL</button><output></output>`;
     const number = selector => Number(box.querySelector(selector).value || 0);
-    box.querySelector("button").onclick = () => {
+    box.querySelector("[data-quote]").onclick = () => {
+      const source = box.querySelector("[data-fee-source]");
+      const categoryId = box.querySelector("[data-category]").value.trim().toUpperCase();
+      if (!/^MLB\d+$/.test(categoryId)) {
+        source.textContent = "Informe a categoria no formato MLB1234.";
+        return;
+      }
+      source.textContent = "CONSULTANDO API OFICIAL...";
+      chrome.runtime.sendMessage({
+        type: "TOCA_QUOTE_ML_FEES",
+        payload: {
+          price: data.price,
+          category_id: categoryId,
+          listing_type_id: box.querySelector("[data-listing-type]").value
+        }
+      }, response => {
+        if (!response?.ok) {
+          source.textContent = "Cotação indisponível: " + (response?.error || "sem conexão");
+          return;
+        }
+        const quote = response.quote;
+        box.querySelector("[data-commission]").value = quote.commission_percent;
+        box.querySelector("[data-fee]").value = quote.fixed_fee;
+        box.querySelector("[data-financing]").value = quote.financing_percent;
+        source.textContent = `API OFICIAL ML · taxa total R$ ${quote.sale_fee_amount.toFixed(2)}`;
+      });
+    };
+    box.querySelector("button:not([data-quote])").onclick = () => {
       const output = box.querySelector("output");
       output.textContent = "CALCULANDO...";
       const payload = {

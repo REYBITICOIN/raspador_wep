@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -40,6 +41,34 @@ class MarginCalculatorTests(unittest.TestCase):
         self.assertEqual(result["fee_breakdown"]["tax"], 5.0)
         self.assertEqual(result["fee_source"], "manual_until_official_quote_is_connected")
         self.assertTrue(result["profitable"])
+
+    def test_official_mercadolivre_quote_maps_fee_breakdown(self):
+        official = Mock()
+        official.is_error = False
+        official.json.return_value = [{
+            "listing_type_id": "gold_special",
+            "sale_fee_amount": 40.2,
+            "sale_fee_details": {
+                "percentage_fee": 15,
+                "fixed_fee": 6,
+                "financing_add_on_fee": 0,
+            },
+        }]
+        with patch("services.api.app.margin.call_with_auto_refresh", return_value=official):
+            response = self.client.post(
+                "/v1/margins/mercadolivre/quote",
+                json={
+                    "price": 228,
+                    "category_id": "MLB1430",
+                    "listing_type_id": "gold_special",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["commission_percent"], 15.0)
+        self.assertEqual(result["fixed_fee"], 6.0)
+        self.assertEqual(result["sale_fee_amount"], 40.2)
+        self.assertEqual(result["source"], "mercadolivre_official_api")
 
     def test_margin_rejects_impossible_rates(self):
         response = self.client.post(

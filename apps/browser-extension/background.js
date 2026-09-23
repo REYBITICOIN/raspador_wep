@@ -65,6 +65,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => sendResponse({ok: false, error: error.message}));
     return true;
   }
+  if (message?.type === "TOCA_QUOTE_ML_FEES") {
+    api("/v1/margins/mercadolivre/quote", message.payload)
+      .then(quote => sendResponse({ok: true, quote}))
+      .catch(error => sendResponse({ok: false, error: error.message}));
+    return true;
+  }
   if (message?.type === "TOCA_CALCULATE_MARGIN") {
     api("/v1/margins/calculate", message.payload)
       .then(result => sendResponse({ok: true, result}))

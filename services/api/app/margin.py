@@ -5,6 +5,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from .ml_oauth import call_with_auto_refresh
+
 router = APIRouter(prefix="/v1/margins", tags=["margins"])
 MONEY = Decimal("0.01")
 
@@ -26,6 +28,57 @@ class MarginRequest(BaseModel):
     packaging_cost: Decimal = Field(default=0, ge=0)
     other_cost: Decimal = Field(default=0, ge=0)
     desired_margin_percent: Decimal | None = Field(default=None, ge=0, lt=100)
+
+
+class MercadoLivreFeeQuoteRequest(BaseModel):
+    price: Decimal = Field(gt=0)
+    category_id: str = Field(pattern=r"^MLB\d+$")
+    listing_type_id: str = Field(default="gold_special", pattern=r"^[a-z_]+$")
+
+
+@router.post("/mercadolivre/quote")
+def quote_mercadolivre_fee(request: MercadoLivreFeeQuoteRequest) -> dict:
+    response = call_with_auto_refresh(
+        "GET",
+        "https://api.mercadolibre.com/sites/MLB/listing_prices",
+        params={"price": float(request.price), "category_id": request.category_id},
+    )
+    if response.is_error:
+        raise HTTPException(
+            502,
+            f"Mercado Livre recusou a cotação oficial ({response.status_code})",
+        )
+    rows = response.json()
+    quote = next(
+        (row for row in rows if row.get("listing_type_id") == request.listing_type_id),
+        None,
+    )
+    if not quote:
+        raise HTTPException(404, "Tipo de anúncio não disponível para esta categoria")
+    details = quote.get("sale_fee_details") or {}
+    total_fee = Decimal(str(quote.get("sale_fee_amount") or 0))
+    fixed_fee = Decimal(str(details.get("fixed_fee") or 0))
+    percentage = details.get("percentage_fee")
+    if percentage is None:
+        percentage = (
+            (total_fee - fixed_fee) / request.price * Decimal("100")
+            if request.price > 0
+            else Decimal("0")
+        )
+    financing = Decimal(str(details.get("financing_add_on_fee") or 0))
+    return {
+        "marketplace": "mercadolivre",
+        "site_id": "MLB",
+        "category_id": request.category_id,
+        "listing_type_id": request.listing_type_id,
+        "price": money(request.price),
+        "commission_percent": money(Decimal(str(percentage))),
+        "fixed_fee": money(fixed_fee),
+        "financing_percent": money(financing),
+        "sale_fee_amount": money(total_fee),
+        "source": "mercadolivre_official_api",
+        "authenticated": True,
+    }
 
 
 @router.post("/calculate")
