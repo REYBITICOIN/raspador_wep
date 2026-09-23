@@ -22,7 +22,7 @@ class ApiFlowTest(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_health_and_complete_collection(self):
-        with patch("services.api.app.main.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), patch("services.api.app.main.crawl_dynamic_page", fake_crawl):
+        with patch("services.api.app.main.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), patch("services.api.app.main.crawl_dynamic_page", fake_crawl), patch("services.api.app.main.settings.nvidia_api_key", None):
             response = self.client.post("/v1/jobs", json={"url": "https://example.com", "instruction": "Extraia o titulo", "provider": "auto"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["status"], "completed")

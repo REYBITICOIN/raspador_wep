@@ -20,8 +20,19 @@ class ExtensionApiTests(unittest.TestCase):
             "price": 99.9,
             "currency": "BRL",
             "seller": "Loja teste",
+            "listing_id": "MLB123",
+            "brand": "Marca teste",
+            "condition": "NewCondition",
+            "rating": 4.8,
+            "review_count": 125,
+            "sold_count": 42,
+            "image_count": 6,
+            "shipping": "Frete grátis",
+            "is_catalog": False,
+            "is_sponsored": False,
+            "source_map": {"title": "JSON-LD Product.name", "price": "JSON-LD Product.offers.price"},
             "confidence": "high",
-            "evidence": ["JSON-LD Product.name", "JSON-LD Product.offers.price"],
+            "evidence": ["title: JSON-LD Product.name", "price: JSON-LD Product.offers.price"],
             "warnings": [],
         }
 
@@ -35,6 +46,9 @@ class ExtensionApiTests(unittest.TestCase):
         self.assertTrue(created.json()["verified"])
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.json()[0]["title"], "Produto de teste")
+        self.assertEqual(listed.json()[0]["listing_id"], "MLB123")
+        self.assertEqual(listed.json()[0]["review_count"], 125)
+        self.assertEqual(listed.json()[0]["source_map"]["price"], "JSON-LD Product.offers.price")
 
     def test_unknown_marketplace_is_rejected(self):
         payload = {**self.payload, "marketplace": "desconhecido"}

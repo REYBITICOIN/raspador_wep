@@ -17,6 +17,27 @@
     return document.querySelector(`meta[property="${property}"],meta[name="${property}"]`)?.content?.trim() || "";
   }
 
+  function firstText(selectors) {
+    for (const selector of selectors) {
+      const value = text(selector);
+      if (value) return {value, selector};
+    }
+    return {value: "", selector: ""};
+  }
+
+  function attr(selectors, name) {
+    for (const selector of selectors) {
+      const value = document.querySelector(selector)?.getAttribute(name)?.trim();
+      if (value) return {value, selector};
+    }
+    return {value: "", selector: ""};
+  }
+
+  function numberFromText(value) {
+    const match = String(value || "").replace(/\./g, "").match(/\d+(?:,\d+)?/);
+    return match ? Number(match[0].replace(",", ".")) : null;
+  }
+
   function productSchema() {
     for (const node of document.querySelectorAll('script[type="application/ld+json"]')) {
       try {
@@ -47,37 +68,54 @@
   function inspectPage() {
     const schema = productSchema();
     const offer = offerOf(schema);
-    const seller = typeof offer.seller === "object" ? offer.seller?.name : offer.seller;
-    const title = schema.name || meta("og:title") || text("h1");
-    const visiblePrice = text('[itemprop="price"]') ||
-      text(".andes-money-amount__fraction") ||
-      text(".a-price .a-offscreen");
-    const price = normalizePrice(offer.price || meta("product:price:amount") || visiblePrice);
-    const availability = String(offer.availability || "").split("/").pop() || null;
-    const evidence = [];
-    if (schema.name) evidence.push("JSON-LD Product.name");
-    if (offer.price) evidence.push("JSON-LD Product.offers.price");
-    if (seller) evidence.push("JSON-LD Product.offers.seller");
-    if (!schema.name && meta("og:title")) evidence.push("OpenGraph og:title");
-    if (!offer.price && visiblePrice) evidence.push("Preço visível no DOM");
+    const source = {};
+    const record = (key, value, label) => {
+      if (value !== null && value !== undefined && value !== "") source[key] = label;
+      return value || null;
+    };
+    const sellerSchema = typeof offer.seller === "object" ? offer.seller?.name : offer.seller;
+    const sellerDom = firstText([".ui-pdp-seller__header__title", ".ui-pdp-seller__header__title a", "[data-testid='seller-info']"]);
+    const brandDom = firstText([".ui-pdp-family--REGULAR", ".ui-pdp-specs__table__column span"]);
+    const conditionDom = firstText([".ui-pdp-header__subtitle", ".ui-pdp-subtitle"]);
+    const ratingDom = firstText([".ui-pdp-review__rating", ".ui-review-capability__rating__average"]);
+    const reviewsDom = firstText([".ui-pdp-review__amount", ".ui-review-capability__rating__label"]);
+    const soldDom = firstText([".ui-pdp-subtitle", ".ui-pdp-header__subtitle"]);
+    const shippingDom = firstText([".ui-pdp-shipping__title", ".ui-pdp-shipping__subtitle", "[data-testid='shipping-message']"]);
+    const catalogDom = firstText([".ui-pdp-component-list .ui-pdp-color--BLACK", "[data-testid='catalog-product']"]);
+    const listingId = location.pathname.match(/ML[ABU]-?\d+/i)?.[0]?.replace("-", "").toUpperCase() || null;
+    const title = record("title", schema.name || meta("og:title") || text("h1"), schema.name ? "JSON-LD Product.name" : meta("og:title") ? "OpenGraph og:title" : "DOM h1");
+    const visiblePrice = firstText(['[itemprop="price"]', ".andes-money-amount__fraction", ".a-price .a-offscreen"]);
+    const price = record("price", normalizePrice(offer.price || meta("product:price:amount") || visiblePrice.value), offer.price ? "JSON-LD Product.offers.price" : meta("product:price:amount") ? "Meta product:price:amount" : `DOM ${visiblePrice.selector}`);
+    const seller = record("seller", sellerSchema || sellerDom.value, sellerSchema ? "JSON-LD Product.offers.seller" : `DOM ${sellerDom.selector}`);
+    const brand = record("brand", typeof schema.brand === "object" ? schema.brand?.name : schema.brand || brandDom.value, schema.brand ? "JSON-LD Product.brand" : `DOM ${brandDom.selector}`);
+    const condition = record("condition", String(offer.itemCondition || "").split("/").pop() || conditionDom.value.split("|")[0]?.trim(), offer.itemCondition ? "JSON-LD Product.offers.itemCondition" : `DOM ${conditionDom.selector}`);
+    const rating = record("rating", Number(schema.aggregateRating?.ratingValue) || numberFromText(ratingDom.value), schema.aggregateRating?.ratingValue ? "JSON-LD aggregateRating.ratingValue" : `DOM ${ratingDom.selector}`);
+    const reviewCount = record("review_count", Number(schema.aggregateRating?.reviewCount) || numberFromText(reviewsDom.value), schema.aggregateRating?.reviewCount ? "JSON-LD aggregateRating.reviewCount" : `DOM ${reviewsDom.selector}`);
+    const soldCount = /vendid/i.test(soldDom.value) ? record("sold_count", numberFromText(soldDom.value.match(/([\d.]+)\s+vendid/i)?.[0]), `DOM ${soldDom.selector}`) : null;
+    const schemaImages = Array.isArray(schema.image) ? schema.image.length : schema.image ? 1 : 0;
+    const images = Math.max(schemaImages, document.querySelectorAll(".ui-pdp-gallery__figure img, .ui-pdp-gallery img").length);
+    const shipping = record("shipping", shippingDom.value, `DOM ${shippingDom.selector}`);
+    const evidence = Object.entries(source).map(([key, label]) => `${key}: ${label}`);
+    const missing = ["seller", "brand", "condition", "rating"].filter(key => !source[key]);
 
     return {
-      marketplace: marketplace(),
-      url: location.href,
+      marketplace: marketplace(), url: location.href,
       canonical_url: document.querySelector('link[rel="canonical"]')?.href || location.href,
-      captured_at: new Date().toISOString(),
-      title: title || null,
-      price,
-      currency: offer.priceCurrency || meta("product:price:currency") || "BRL",
-      seller: seller || null,
-      availability,
-      stock: null,
-      sales_estimate: null,
-      evidence,
-      confidence: evidence.length >= 2 ? "high" : evidence.length ? "medium" : "low",
+      captured_at: new Date().toISOString(), listing_id: listingId,
+      title, price, currency: offer.priceCurrency || meta("product:price:currency") || "BRL",
+      seller, brand, category: null, condition,
+      rating, review_count: reviewCount, sold_count: soldCount,
+      image_count: images || null, shipping,
+      listing_type: null, seller_reputation: null,
+      is_catalog: /cat[aá]logo/i.test(catalogDom.value) || null,
+      is_sponsored: /patrocinado/i.test(document.body.innerText.slice(0, 5000)) || null,
+      availability: String(offer.availability || "").split("/").pop() || null,
+      stock: null, sales_estimate: null, source_map: source, evidence,
+      confidence: source.title && source.price ? (evidence.length >= 5 ? "high" : "medium") : "low",
       warnings: [
-        ...(seller ? [] : ["Vendedor não confirmado pela página."]),
-        "Estoque e vendas estimadas permanecem vazios sem fonte verificável."
+        ...(missing.length ? [`Não confirmados: ${missing.join(", ")}.`] : []),
+        ...(soldCount === null ? ["Vendas não expostas pela página; nenhuma estimativa foi inventada."] : []),
+        "Estoque oculto permanece vazio sem API ou evidência verificável."
       ]
     };
   }
@@ -140,9 +178,18 @@
       field("Marketplace", data.marketplace),
       field("Título", data.title),
       field("Preço", data.price == null ? null : new Intl.NumberFormat("pt-BR", {style: "currency", currency: data.currency}).format(data.price)),
+      field("ID anúncio", data.listing_id),
       field("Vendedor", data.seller),
+      field("Marca", data.brand),
+      field("Condição", data.condition),
+      field("Avaliação", data.rating == null ? null : `${data.rating} / 5`),
+      field("Avaliações", data.review_count),
+      field("Vendidos", data.sold_count),
+      field("Imagens", data.image_count),
+      field("Entrega", data.shipping),
+      field("Catálogo", data.is_catalog == null ? null : data.is_catalog ? "SIM" : "NÃO"),
+      field("Patrocinado", data.is_sponsored == null ? null : data.is_sponsored ? "SIM" : "NÃO"),
       field("Estoque", data.stock),
-      field("Vendas", data.sales_estimate),
       field("Confiança", data.confidence.toUpperCase())
     );
     const proof = document.createElement("small");

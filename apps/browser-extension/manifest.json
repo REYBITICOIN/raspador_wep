@@ -3,9 +3,10 @@
   "name": "Toca Commerce Intelligence",
   "version": "0.1.0",
   "description": "Raio-X factual de anúncios para o Toca Commerce OS.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "localNetwork"],
   "host_permissions": [
     "http://127.0.0.1:8091/*",
+    "http://localhost:8091/*",
     "https://*.mercadolivre.com.br/*",
     "https://*.mercadolibre.com/*",
     "https://*.shopee.com.br/*",
