@@ -159,7 +159,7 @@
     return box;
   }
 
-  function render() {
+  function renderProduct() {
     document.getElementById(PANEL_ID)?.remove();
     const data = inspectPage();
     const panel = document.createElement("aside");
@@ -218,7 +218,121 @@
     return data;
   }
 
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  function priceFromCard(card) {
+    const current = card.querySelector(".poly-price__current .andes-money-amount, .poly-component__price > .andes-money-amount");
+    if (!current) return null;
+    const fraction = current.querySelector(".andes-money-amount__fraction")?.textContent || "";
+    const cents = current.querySelector(".andes-money-amount__cents")?.textContent || "00";
+    return normalizePrice(`${fraction},${cents}`);
+  }
+
+  function inspectSearchPage() {
+    const cards = [...document.querySelectorAll(".ui-search-layout__item")];
+    const products = cards.map((item, index) => {
+      const card = item.querySelector(".poly-card") || item;
+      const link = card.querySelector("a.poly-component__title");
+      const href = link?.href || "";
+      const listingId = decodeURIComponent(href).match(/ML[ABU]-?\d+/i)?.[0]?.replace("-", "").toUpperCase() || null;
+      const seller = card.querySelector(".poly-component__seller .polylabel-label")?.textContent?.trim() || null;
+      const ratingText = card.querySelector(".poly-component__review-compacted .polylabel-label")?.textContent?.trim() || "";
+      const rating = Number.parseFloat(ratingText.replace(",", ".")) || null;
+      const shippingNode = [...card.querySelectorAll(".polylabel-pill, .poly-component__shipping")].find(node => /grátis|frete|chegar/i.test(node.textContent || ""));
+      const shipping = shippingNode?.textContent?.trim() || null;
+      const discount = card.querySelector(".poly-price__disc_label, .andes-money-amount__discount")?.textContent?.trim() || null;
+      const badge = card.querySelector(".poly-component__poly-label")?.textContent?.trim() || null;
+      const official = Boolean(card.querySelector('[aria-label="Loja oficial"]'));
+      const sponsored = href.includes("is_advertising=true") || /(^|\n)Ad($|\n)/.test(card.innerText);
+      return {
+        position: index + 1, listing_id: listingId,
+        title: link?.textContent?.trim() || null, price: priceFromCard(card),
+        currency: "BRL", url: href || null, seller, rating, shipping,
+        discount, badge, official_store: official, sponsored,
+        image_url: card.querySelector("img.poly-component__picture")?.src || null,
+        evidence: ["DOM .ui-search-layout__item", "DOM .poly-card"]
+      };
+    }).filter(product => product.title && product.price !== null);
+    const prices = products.map(product => product.price);
+    const query = document.querySelector(".nav-search-input")?.value?.trim() ||
+      decodeURIComponent(location.pathname.split("/").pop() || "").replace(/-/g, " ");
+    return {
+      marketplace: "mercadolivre", page_type: "search", url: location.href,
+      captured_at: new Date().toISOString(), query,
+      visible_results: cards.length, captured_results: products.length,
+      sponsored_count: products.filter(product => product.sponsored).length,
+      official_store_count: products.filter(product => product.official_store).length,
+      free_shipping_count: products.filter(product => /gr[aá]tis/i.test(product.shipping || "")).length,
+      min_price: prices.length ? Math.min(...prices) : null,
+      max_price: prices.length ? Math.max(...prices) : null,
+      products,
+      confidence: products.length ? "high" : "low",
+      warnings: ["Vendas, visitas e estoque não são estimados sem fonte verificável."]
+    };
+  }
+
+  function searchProductCard(product) {
+    const card = document.createElement("article");
+    card.className = "toca-search-product";
+    const flags = [product.sponsored ? "PATROCINADO" : null, product.official_store ? "LOJA OFICIAL" : null, product.badge].filter(Boolean);
+    card.innerHTML = `<span>#${product.position}</span><strong></strong><b></b><small></small>`;
+    card.querySelector("strong").textContent = product.title;
+    card.querySelector("b").textContent = new Intl.NumberFormat("pt-BR", {style: "currency", currency: "BRL"}).format(product.price);
+    card.querySelector("small").textContent = [product.seller, product.rating ? `★ ${product.rating}` : null, product.shipping, ...flags].filter(Boolean).join(" · ");
+    return card;
+  }
+
+  function renderSearch() {
+    document.getElementById(PANEL_ID)?.remove();
+    const data = inspectSearchPage();
+    const panel = document.createElement("aside");
+    panel.id = PANEL_ID;
+    panel.className = "toca-search-panel";
+    const header = document.createElement("header");
+    header.innerHTML = "<strong>TOCA · RADAR DE PESQUISA</strong>";
+    const close = document.createElement("button");
+    close.textContent = "×";
+    close.onclick = () => panel.remove();
+    header.append(close);
+    panel.append(header);
+    const body = document.createElement("section");
+    body.append(
+      field("Busca", data.query),
+      field("Visíveis", data.visible_results),
+      field("Capturados", data.captured_results),
+      field("Patrocinados", data.sponsored_count),
+      field("Lojas oficiais", data.official_store_count),
+      field("Frete grátis", data.free_shipping_count),
+      field("Preço mínimo", data.min_price == null ? null : `R$ ${data.min_price.toFixed(2)}`),
+      field("Preço máximo", data.max_price == null ? null : `R$ ${data.max_price.toFixed(2)}`)
+    );
+    const list = document.createElement("div");
+    list.className = "toca-search-list";
+    data.products.slice(0, 10).forEach(product => list.append(searchProductCard(product)));
+    body.append(list);
+    const warning = document.createElement("p");
+    warning.className = "toca-ray-warning";
+    warning.textContent = data.warnings.join(" ");
+    body.append(warning);
+    const save = document.createElement("button");
+    save.className = "toca-ray-save";
+    save.textContent = "SALVAR PESQUISA";
+    save.onclick = () => {
+      save.disabled = true; save.textContent = "SALVANDO...";
+      chrome.runtime.sendMessage({type: "TOCA_SAVE_SEARCH_SNAPSHOT", payload: data}, response => {
+        save.disabled = false;
+        save.textContent = response?.ok ? "PESQUISA SALVA ✓" : "ERRO: " + (response?.error || "sem conexão");
+      });
+    };
+    body.append(save);
+    panel.append(body);
+    document.documentElement.append(panel);
+    return data;
+  }
+
+  function render() {
+    return document.querySelectorAll(".ui-search-layout__item").length ? renderSearch() : renderProduct();
+  }
+
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "TOCA_INSPECT") {
       render();
       sendResponse({ok: true});

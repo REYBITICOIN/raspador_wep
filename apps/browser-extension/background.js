@@ -40,6 +40,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => sendResponse({ok: false, error: error.message}));
     return true;
   }
+  if (message?.type === "TOCA_SAVE_SEARCH_SNAPSHOT") {
+    api("/v1/extension/search-snapshots", message.payload)
+      .then(snapshot => sendResponse({ok: true, snapshot}))
+      .catch(error => sendResponse({ok: false, error: error.message}));
+    return true;
+  }
   if (message?.type === "TOCA_CALCULATE_MARGIN") {
     api("/v1/margins/calculate", message.payload)
       .then(result => sendResponse({ok: true, result}))

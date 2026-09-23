@@ -35,6 +35,30 @@ class ExtensionApiTests(unittest.TestCase):
             "evidence": ["title: JSON-LD Product.name", "price: JSON-LD Product.offers.price"],
             "warnings": [],
         }
+        self.search_payload = {
+            "marketplace": "mercadolivre",
+            "page_type": "search",
+            "url": "https://lista.mercadolivre.com.br/calca-legging-flare",
+            "captured_at": "2026-09-23T12:00:00Z",
+            "query": "calca legging flare",
+            "visible_results": 1,
+            "captured_results": 1,
+            "sponsored_count": 1,
+            "official_store_count": 1,
+            "free_shipping_count": 1,
+            "min_price": 35.9,
+            "max_price": 35.9,
+            "products": [{
+                "position": 1, "listing_id": "MLB4182420507",
+                "title": "Calça Legging Flare", "price": 35.9,
+                "url": "https://produto.mercadolivre.com.br/MLB-4182420507",
+                "seller": "KOENIG", "rating": 4.7,
+                "shipping": "Frete grátis", "official_store": True,
+                "sponsored": True, "evidence": ["DOM .poly-card"],
+            }],
+            "confidence": "high",
+            "warnings": ["Vendas não estimadas."],
+        }
 
     def test_snapshot_is_persisted_and_listed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -49,6 +73,26 @@ class ExtensionApiTests(unittest.TestCase):
         self.assertEqual(listed.json()[0]["listing_id"], "MLB123")
         self.assertEqual(listed.json()[0]["review_count"], 125)
         self.assertEqual(listed.json()[0]["source_map"]["price"], "JSON-LD Product.offers.price")
+
+    def test_search_snapshot_is_persisted_and_listed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "search-snapshots.json"
+            with patch("services.api.app.extension_api.SEARCH_SNAPSHOTS_FILE", target):
+                created = self.client.post("/v1/extension/search-snapshots", json=self.search_payload)
+                listed = self.client.get("/v1/extension/search-snapshots")
+        self.assertEqual(created.status_code, 201)
+        self.assertTrue(created.json()["verified"])
+        self.assertEqual(listed.json()[0]["products"][0]["listing_id"], "MLB4182420507")
+        self.assertTrue(listed.json()[0]["products"][0]["sponsored"])
+
+    def test_search_snapshot_rejects_inconsistent_count(self):
+        payload = {**self.search_payload, "captured_results": 2}
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "search-snapshots.json"
+            with patch("services.api.app.extension_api.SEARCH_SNAPSHOTS_FILE", target):
+                response = self.client.post("/v1/extension/search-snapshots", json=payload)
+        self.assertEqual(response.status_code, 201)
+        self.assertFalse(response.json()["verified"])
 
     def test_unknown_marketplace_is_rejected(self):
         payload = {**self.payload, "marketplace": "desconhecido"}

@@ -13,3 +13,6 @@
 .toca-margin{margin:12px 0;padding:10px;border:1px solid #17414b;background:#081d26}.toca-margin>strong{display:block;margin-bottom:8px;color:#55e7ff;font-size:11px;letter-spacing:.08em}
 .toca-margin label{display:grid;grid-template-columns:1fr 90px;align-items:center;gap:8px;margin:6px 0;color:#9ab5bb;font-size:11px}.toca-margin input{width:100%;padding:6px;background:#031016;color:#e8f7fa;border:1px solid #245563}
 .toca-margin button{width:100%;margin-top:6px;padding:8px;border:0;background:#55e7ff;color:#042029;font-weight:800;cursor:pointer}.toca-margin output{display:block;margin-top:8px;color:#64efae;font-size:11px;line-height:1.4}
+#toca-commerce-ray-x.toca-search-panel{width:430px;max-height:calc(100vh - 120px);overflow:auto}
+.toca-search-list{display:grid;gap:8px;margin:12px 0}.toca-search-product{display:grid;grid-template-columns:28px 1fr auto;gap:5px 8px;padding:9px;border:1px solid #17414b;background:#081d26}
+.toca-search-product>span{grid-row:1/3;color:#55e7ff;font-weight:800}.toca-search-product>strong{font-size:11px;line-height:1.3}.toca-search-product>b{color:#64efae;font-size:11px;white-space:nowrap}.toca-search-product>small{grid-column:2/4;margin:0!important;color:#7899a1!important;font-size:10px!important}

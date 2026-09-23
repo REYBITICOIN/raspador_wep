@@ -12,7 +12,7 @@ socket.send(JSON.stringify({id:1, method:"Runtime.evaluate", params:{
     if (!button) return {ok:false, error:"Botão salvar não encontrado"};
     button.click();
     await new Promise(resolve => setTimeout(resolve, 2500));
-    return {ok:button.textContent.includes("SALVO"), text:button.textContent};
+    return {ok:button.textContent.includes("✓"), text:button.textContent};
   })()`,
   awaitPromise:true,
   returnByValue:true
