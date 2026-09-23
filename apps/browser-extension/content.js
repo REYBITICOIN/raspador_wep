@@ -133,19 +133,33 @@
   function marginCalculator(data) {
     const box = document.createElement("div");
     box.className = "toca-margin";
-    box.innerHTML = `<strong>CALCULADORA DE LUCRO</strong>
+    box.innerHTML = `<strong>CALCULADORA DE LUCRO AUDITÁVEL</strong>
+      <small>Taxas manuais até a cotação oficial da conta estar conectada.</small>
       <label>Custo do produto <input data-cost type="number" min="0" step="0.01"></label>
-      <label>Comissão % <input data-commission type="number" min="0" max="100" step="0.01"></label>
-      <label>Frete + taxa fixa <input data-fixed type="number" min="0" step="0.01"></label>
-      <button type="button">CALCULAR MARGEM</button><output></output>`;
+      <label>Comissão ML % <input data-commission type="number" min="0" max="100" step="0.01"></label>
+      <label>Impostos % <input data-tax type="number" min="0" max="100" step="0.01"></label>
+      <label>Publicidade % <input data-ads type="number" min="0" max="100" step="0.01"></label>
+      <label>Parcelamento % <input data-financing type="number" min="0" max="100" step="0.01"></label>
+      <label>Taxa fixa <input data-fee type="number" min="0" step="0.01"></label>
+      <label>Frete do vendedor <input data-shipping type="number" min="0" step="0.01"></label>
+      <label>Embalagem <input data-packaging type="number" min="0" step="0.01"></label>
+      <label>Margem desejada % <input data-desired type="number" min="0" max="99" step="0.01" value="20"></label>
+      <button type="button">CALCULAR LUCRO REAL</button><output></output>`;
+    const number = selector => Number(box.querySelector(selector).value || 0);
     box.querySelector("button").onclick = () => {
       const output = box.querySelector("output");
       output.textContent = "CALCULANDO...";
       const payload = {
         sale_price: data.price,
-        acquisition_cost: Number(box.querySelector("[data-cost]").value || 0),
-        commission_percent: Number(box.querySelector("[data-commission]").value || 0),
-        shipping_cost: Number(box.querySelector("[data-fixed]").value || 0)
+        acquisition_cost: number("[data-cost]"),
+        commission_percent: number("[data-commission]"),
+        tax_percent: number("[data-tax]"),
+        ads_percent: number("[data-ads]"),
+        financing_percent: number("[data-financing]"),
+        fixed_fee: number("[data-fee]"),
+        shipping_cost: number("[data-shipping]"),
+        packaging_cost: number("[data-packaging]"),
+        desired_margin_percent: number("[data-desired]")
       };
       chrome.runtime.sendMessage({type: "TOCA_CALCULATE_MARGIN", payload}, response => {
         if (!response?.ok) {
@@ -153,7 +167,9 @@
           return;
         }
         const value = response.result;
-        output.textContent = `Lucro líquido: R$ ${value.net_profit.toFixed(2)} · Margem: ${value.net_margin_percent.toFixed(2)}% · Mínimo: R$ ${value.break_even_price.toFixed(2)}`;
+        const status = value.profitable ? "LUCRO" : "PREJUÍZO";
+        output.textContent = `${status}: R$ ${value.net_profit.toFixed(2)} · Margem líquida: ${value.net_margin_percent.toFixed(2)}% · ROI: ${value.roi_percent == null ? "—" : value.roi_percent.toFixed(2) + "%"} · Equilíbrio: R$ ${value.break_even_price.toFixed(2)} · Preço para margem desejada: R$ ${value.desired_sale_price.toFixed(2)}`;
+        output.dataset.profitable = String(value.profitable);
       });
     };
     return box;

@@ -32,6 +32,13 @@ class MarginCalculatorTests(unittest.TestCase):
         self.assertEqual(result["net_margin_percent"], 20.0)
         self.assertEqual(result["break_even_price"], 75.0)
         self.assertEqual(result["desired_sale_price"], 100.0)
+        self.assertEqual(result["net_revenue"], 80.0)
+        self.assertEqual(result["contribution_margin"], 60.0)
+        self.assertEqual(result["roi_percent"], 50.0)
+        self.assertEqual(result["markup_percent"], 150.0)
+        self.assertEqual(result["fee_breakdown"]["commission"], 15.0)
+        self.assertEqual(result["fee_breakdown"]["tax"], 5.0)
+        self.assertEqual(result["fee_source"], "manual_until_official_quote_is_connected")
         self.assertTrue(result["profitable"])
 
     def test_margin_rejects_impossible_rates(self):
