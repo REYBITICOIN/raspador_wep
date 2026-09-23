@@ -280,7 +280,32 @@
     return card;
   }
 
-  function renderSearch() {
+  function renderHistory(container, history) {
+    container.replaceChildren();
+    const title = document.createElement("strong");
+    title.textContent = `HISTÓRICO · ${history.snapshot_count} CAPTURA(S)`;
+    container.append(title);
+    if (!history.has_comparison) {
+      const message = document.createElement("p");
+      message.textContent = "A segunda captura permitirá calcular mudanças de preço e posição.";
+      container.append(message);
+      return;
+    }
+    history.competitors.slice(0, 8).forEach(product => {
+      const row = document.createElement("div");
+      row.className = "toca-history-row";
+      const position = product.position_change == null ? "novo" :
+        product.position_change > 0 ? `subiu ${product.position_change}` :
+        product.position_change < 0 ? `caiu ${Math.abs(product.position_change)}` : "posição estável";
+      const price = product.price_change == null ? "" :
+        product.price_change > 0 ? ` · preço +R$ ${product.price_change.toFixed(2)}` :
+        product.price_change < 0 ? ` · preço -R$ ${Math.abs(product.price_change).toFixed(2)}` : " · preço estável";
+      row.textContent = `#${product.current_position} ${product.title} · ${position}${price}`;
+      container.append(row);
+    });
+  }
+
+    function renderSearch() {
     document.getElementById(PANEL_ID)?.remove();
     const data = inspectSearchPage();
     const panel = document.createElement("aside");
@@ -308,6 +333,14 @@
     list.className = "toca-search-list";
     data.products.slice(0, 10).forEach(product => list.append(searchProductCard(product)));
     body.append(list);
+    const historyBox = document.createElement("div");
+    historyBox.className = "toca-history";
+    historyBox.textContent = "CARREGANDO HISTÓRICO...";
+    body.append(historyBox);
+    chrome.runtime.sendMessage({type: "TOCA_GET_SEARCH_HISTORY", query: data.query}, response => {
+      if (response?.ok) renderHistory(historyBox, response.history);
+      else historyBox.textContent = "Histórico indisponível: " + (response?.error || "sem conexão");
+    });
     const warning = document.createElement("p");
     warning.className = "toca-ray-warning";
     warning.textContent = data.warnings.join(" ");
@@ -320,6 +353,11 @@
       chrome.runtime.sendMessage({type: "TOCA_SAVE_SEARCH_SNAPSHOT", payload: data}, response => {
         save.disabled = false;
         save.textContent = response?.ok ? "PESQUISA SALVA ✓" : "ERRO: " + (response?.error || "sem conexão");
+        if (response?.ok) {
+          chrome.runtime.sendMessage({type: "TOCA_GET_SEARCH_HISTORY", query: data.query}, historyResponse => {
+            if (historyResponse?.ok) renderHistory(historyBox, historyResponse.history);
+          });
+        }
       });
     };
     body.append(save);

@@ -94,6 +94,30 @@ class ExtensionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertFalse(response.json()["verified"])
 
+    def test_search_history_compares_real_snapshots(self):
+        older_product = {**self.search_payload["products"][0], "position": 3, "price": 40.9}
+        older = {
+            **self.search_payload,
+            "captured_at": "2026-09-23T11:00:00Z",
+            "min_price": 40.9,
+            "max_price": 40.9,
+            "products": [older_product],
+        }
+        newer = {**self.search_payload, "captured_at": "2026-09-23T12:00:00Z"}
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "search-snapshots.json"
+            with patch("services.api.app.extension_api.SEARCH_SNAPSHOTS_FILE", target):
+                self.client.post("/v1/extension/search-snapshots", json=older)
+                self.client.post("/v1/extension/search-snapshots", json=newer)
+                response = self.client.get("/v1/extension/search-history", params={"query": "  CALCA LEGGING FLARE "})
+        self.assertEqual(response.status_code, 200)
+        history = response.json()
+        self.assertEqual(history["snapshot_count"], 2)
+        self.assertTrue(history["has_comparison"])
+        self.assertEqual(history["competitors"][0]["position_change"], 2)
+        self.assertEqual(history["competitors"][0]["price_change"], -5.0)
+        self.assertEqual(history["competitors"][0]["trend"], "rising")
+
     def test_unknown_marketplace_is_rejected(self):
         payload = {**self.payload, "marketplace": "desconhecido"}
         response = self.client.post("/v1/extension/snapshots", json=payload)

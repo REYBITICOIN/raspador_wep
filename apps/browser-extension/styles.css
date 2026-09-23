@@ -16,3 +16,4 @@
 #toca-commerce-ray-x.toca-search-panel{width:430px;max-height:calc(100vh - 120px);overflow:auto}
 .toca-search-list{display:grid;gap:8px;margin:12px 0}.toca-search-product{display:grid;grid-template-columns:28px 1fr auto;gap:5px 8px;padding:9px;border:1px solid #17414b;background:#081d26}
 .toca-search-product>span{grid-row:1/3;color:#55e7ff;font-weight:800}.toca-search-product>strong{font-size:11px;line-height:1.3}.toca-search-product>b{color:#64efae;font-size:11px;white-space:nowrap}.toca-search-product>small{grid-column:2/4;margin:0!important;color:#7899a1!important;font-size:10px!important}
+.toca-history{margin:12px 0;padding:10px;border:1px solid #715d18;background:#1b180b;color:#e8f7fa;font-size:10px;line-height:1.45}.toca-history>strong{display:block;margin-bottom:7px;color:#ffd65a;letter-spacing:.06em}.toca-history p{margin:0;color:#b9a96c}.toca-history-row{padding:6px 0;border-top:1px solid #3d3514}

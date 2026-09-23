@@ -33,6 +33,13 @@ async function api(path, payload) {
   return body;
 }
 
+async function apiGet(path) {
+  const response = await fetch(API + path);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail || "Backend indisponível");
+  return body;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "TOCA_SAVE_SNAPSHOT") {
     api("/v1/extension/snapshots", message.payload)
@@ -43,6 +50,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "TOCA_SAVE_SEARCH_SNAPSHOT") {
     api("/v1/extension/search-snapshots", message.payload)
       .then(snapshot => sendResponse({ok: true, snapshot}))
+      .catch(error => sendResponse({ok: false, error: error.message}));
+    return true;
+  }
+  if (message?.type === "TOCA_GET_SEARCH_HISTORY") {
+    apiGet("/v1/extension/search-history?query=" + encodeURIComponent(message.query || ""))
+      .then(history => sendResponse({ok: true, history}))
       .catch(error => sendResponse({ok: false, error: error.message}));
     return true;
   }

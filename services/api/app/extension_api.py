@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from statistics import mean
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -123,3 +124,60 @@ def save_search_snapshot(request: SearchSnapshotRequest) -> dict:
 def list_search_snapshots(limit: int = 20) -> list[dict]:
     safe_limit = min(max(limit, 1), 100)
     return list(reversed(read_list(SEARCH_SNAPSHOTS_FILE)))[:safe_limit]
+
+
+def normalized_query(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def product_key(product: dict) -> str:
+    return product.get("listing_id") or normalized_query(product.get("title") or "")
+
+
+@router.get("/search-history")
+def search_history(query: str) -> dict:
+    wanted = normalized_query(query)
+    snapshots = sorted(
+        [row for row in read_list(SEARCH_SNAPSHOTS_FILE) if normalized_query(row.get("query", "")) == wanted],
+        key=lambda row: row.get("captured_at", ""),
+    )
+    timeline = []
+    for row in snapshots:
+        prices = [item["price"] for item in row.get("products", []) if item.get("price") is not None]
+        timeline.append({
+            "snapshot_id": row.get("id"),
+            "captured_at": row.get("captured_at"),
+            "captured_results": row.get("captured_results", 0),
+            "average_price": round(mean(prices), 2) if prices else None,
+            "min_price": min(prices) if prices else None,
+            "max_price": max(prices) if prices else None,
+            "sponsored_count": row.get("sponsored_count", 0),
+            "official_store_count": row.get("official_store_count", 0),
+            "free_shipping_count": row.get("free_shipping_count", 0),
+        })
+    competitors = []
+    if snapshots:
+        latest = snapshots[-1]
+        previous = snapshots[-2] if len(snapshots) > 1 else None
+        prior = {product_key(item): item for item in (previous or {}).get("products", [])}
+        for item in latest.get("products", []):
+            old = prior.get(product_key(item))
+            price_change = round(item["price"] - old["price"], 2) if old and old.get("price") is not None else None
+            position_change = old["position"] - item["position"] if old else None
+            trend = "new" if not old else "rising" if position_change > 0 else "falling" if position_change < 0 else "stable"
+            competitors.append({
+                "listing_id": item.get("listing_id"), "title": item.get("title"),
+                "seller": item.get("seller"), "current_position": item.get("position"),
+                "previous_position": old.get("position") if old else None,
+                "position_change": position_change, "current_price": item.get("price"),
+                "previous_price": old.get("price") if old else None,
+                "price_change": price_change, "rating": item.get("rating"),
+                "sponsored": item.get("sponsored", False),
+                "official_store": item.get("official_store", False), "trend": trend,
+            })
+    return {
+        "query": query, "snapshot_count": len(snapshots),
+        "has_comparison": len(snapshots) > 1,
+        "timeline": timeline, "competitors": competitors,
+        "method": "Comparação determinística entre capturas reais; não estima vendas, visitas ou estoque.",
+    }

@@ -12,7 +12,8 @@ socket.send(JSON.stringify({id:1, method:"Runtime.evaluate", params:{
     if (!button) return {ok:false, error:"Botão salvar não encontrado"};
     button.click();
     await new Promise(resolve => setTimeout(resolve, 2500));
-    return {ok:button.textContent.includes("✓"), text:button.textContent};
+    return {ok:button.textContent.includes("✓"), text:button.textContent,
+      history:document.querySelector(".toca-history")?.innerText?.slice(0,2000) || null};
   })()`,
   awaitPromise:true,
   returnByValue:true
