@@ -1,10 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
-from services.api.app.agents import prepare_image
+from services.api.app.agents import enhance_with_realesrgan, prepare_image, source_correlation
 
 
 class ImageCuratorTests(unittest.TestCase):
@@ -26,6 +27,33 @@ class ImageCuratorTests(unittest.TestCase):
         self.assertTrue(result["output_verified"])
         self.assertEqual(output_exif, 0)
         self.assertEqual(result["quality_state"], "source_limited")
+
+    def test_realesrgan_records_model_and_scale(self):
+        source = Image.new("RGB", (20, 30), "white")
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp) / "realesrgan"
+            (home / "models").mkdir(parents=True)
+            (home / "realesrgan-ncnn-vulkan.exe").touch()
+
+            def fake_run(command, **kwargs):
+                output = Path(command[command.index("-o") + 1])
+                Image.new("RGB", (80, 120), "white").save(output)
+                return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+            with patch.dict("os.environ", {"REALESRGAN_HOME": str(home)}), patch("subprocess.run", side_effect=fake_run):
+                enhanced, report = enhance_with_realesrgan(source)
+        self.assertEqual(enhanced.size, (80, 120))
+        self.assertEqual(report["engine"], "Real-ESRGAN NCNN Vulkan")
+        self.assertEqual(report["model"], "realesrgan-x4plus")
+        self.assertEqual(report["scale"], 4)
+        self.assertGreaterEqual(report["source_correlation"], 0.85)
+
+    def test_correlation_detects_spatially_broken_output(self):
+        source = Image.new("L", (40, 40), 0)
+        source.paste(255, (0, 0, 20, 40))
+        broken = Image.new("L", (40, 40), 0)
+        broken.paste(255, (0, 0, 40, 20))
+        self.assertLess(source_correlation(source, broken), 0.85)
 
     def test_high_resolution_source_is_ready_for_visual_review(self):
         source = Image.new("RGB", (1200, 1540), "white")

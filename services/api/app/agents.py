@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import io
+import os
 import re
+import subprocess
+import tempfile
+import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
+import numpy as np
 from fastapi import APIRouter, HTTPException
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from pydantic import BaseModel, Field
@@ -133,6 +139,7 @@ class PrepareImagesRequest(BaseModel):
     product_id: str
     size: int = Field(default=1200, ge=500, le=2000)
     quality: int = Field(default=94, ge=85, le=98)
+    ai_enhance: bool = False
 
 
 class SizeChartRequest(BaseModel):
@@ -200,14 +207,85 @@ def prepare_image(source: Image.Image, target: Path, size: int, quality: int) ->
     }
 
 
-def prepare_one(url: str, target: Path, size: int, quality: int) -> dict:
+def source_correlation(source: Image.Image, candidate: Image.Image) -> float:
+    reference = np.asarray(source.convert("L"), dtype=np.float32)
+    restored = np.asarray(candidate.convert("L").resize(source.size, Image.Resampling.LANCZOS), dtype=np.float32)
+    if reference.std() < 0.001 or restored.std() < 0.001:
+        return 1.0 if np.mean(np.abs(reference - restored)) < 1.0 else 0.0
+    return round(float(np.corrcoef(reference.ravel(), restored.ravel())[0, 1]), 4)
+
+
+def enhance_with_realesrgan(source: Image.Image) -> tuple[Image.Image, dict]:
+    home = Path(os.getenv("REALESRGAN_HOME", DATA_DIR / "tools" / "realesrgan"))
+    executable = home / "realesrgan-ncnn-vulkan.exe"
+    models = home / "models"
+    if not executable.exists() or not models.exists():
+        raise FileNotFoundError("Motor Real-ESRGAN portátil não encontrado")
+    started = time.perf_counter()
+    with tempfile.TemporaryDirectory(dir=MEDIA_DIR) as temp:
+        input_path = Path(temp) / "input.png"
+        output_path = Path(temp) / "output.png"
+        source.convert("RGB").save(input_path, "PNG")
+        command = [
+            str(executable), "-i", str(input_path), "-o", str(output_path),
+            "-m", str(models), "-n", "realesrgan-x4plus", "-s", "4",
+            "-g", "1", "-t", "128", "-f", "png",
+        ]
+        result = subprocess.run(command, cwd=home, capture_output=True, text=True, timeout=180)
+        if result.returncode != 0 or not output_path.exists():
+            error = (result.stderr or result.stdout or "falha desconhecida")[-500:]
+            raise RuntimeError(f"Real-ESRGAN falhou: {error}")
+        with Image.open(output_path) as enhanced:
+            image = enhanced.convert("RGB").copy()
+    correlation = source_correlation(source, image)
+    if correlation < 0.85:
+        raise RuntimeError(f"Saída rejeitada por possível mosaico: correlação {correlation}")
+    return image, {
+        "engine": "Real-ESRGAN NCNN Vulkan",
+        "model": "realesrgan-x4plus",
+        "scale": 4,
+        "source_correlation": correlation,
+        "validation_threshold": 0.85,
+        "gpu_id": 1,
+        "tile_size": 128,
+        "duration_seconds": round(time.perf_counter() - started, 2),
+        "inferred_texture_warning": "A super-resolução reconstrói texturas por modelo; compare com o original.",
+    }
+
+
+def prepare_one(url: str, target: Path, original_target: Path, size: int, quality: int, ai_enhance: bool) -> dict:
     with httpx.Client(timeout=30, follow_redirects=True, trust_env=False) as client:
         response = client.get(url)
     response.raise_for_status()
     if len(response.content) > 20 * 1024 * 1024:
         raise ValueError("Imagem excede 20 MB")
-    with Image.open(io.BytesIO(response.content)) as source:
-        return prepare_image(source, target, size, quality)
+    original_target.write_bytes(response.content)
+    with Image.open(io.BytesIO(response.content)) as opened:
+        source = ImageOps.exif_transpose(opened).convert("RGB")
+    source_size = source.size
+    enhancement = None
+    enhancement_error = None
+    enhancement_skipped_reason = None
+    if ai_enhance and min(source_size) < 1200:
+        try:
+            source, enhancement = enhance_with_realesrgan(source)
+        except Exception as exc:
+            enhancement_error = str(exc)[:500]
+    elif not ai_enhance and min(source_size) < 1200:
+        enhancement_skipped_reason = "Super-resolução local desativada: a GPU MX330 de 2 GB falhou na validação Vulkan."
+    item = prepare_image(source, target, size, quality)
+    item.update({
+        "source_width": source_size[0], "source_height": source_size[1],
+        "original_file": original_target.name,
+        "original_url": f"/media/{target.parent.name}/{original_target.name}",
+        "enhancement": enhancement,
+        "enhancement_error": enhancement_error,
+        "enhancement_skipped_reason": enhancement_skipped_reason,
+    })
+    if enhancement:
+        item["quality_state"] = "enhanced_requires_visual_review"
+        item["warnings"] = [enhancement["inferred_texture_warning"]]
+    return item
 
 
 def chart_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -387,8 +465,11 @@ def prepare_images(request: PrepareImagesRequest) -> dict:
     prepared, errors = [], []
     for index, url in enumerate(images[:10], start=1):
         target = product_dir / f"{index:02d}.jpg"
+        suffix = Path(urlparse(url).path).suffix.lower()
+        suffix = suffix if suffix in {".jpg", ".jpeg", ".png", ".webp"} else ".img"
+        original_target = product_dir / f"original-{index:02d}{suffix}"
         try:
-            item = prepare_one(url, target, request.size, request.quality)
+            item = prepare_one(url, target, original_target, request.size, request.quality, request.ai_enhance)
             item["url"] = f"/media/{request.product_id}/{target.name}"
             prepared.append(item)
         except Exception as exc:
@@ -396,6 +477,9 @@ def prepare_images(request: PrepareImagesRequest) -> dict:
     if not prepared:
         raise HTTPException(502, {"message": "Nenhuma imagem preparada", "errors": errors})
     limited = [item for item in prepared if item["quality_state"] == "source_limited"]
+    enhanced = [item for item in prepared if item.get("enhancement")]
+    enhancement_failures = [item for item in prepared if item.get("enhancement_error")]
+    enhancement_skipped = [item for item in prepared if item.get("enhancement_skipped_reason")]
     return {
         "product_id": request.product_id,
         "agent_id": "image-curator",
@@ -403,8 +487,12 @@ def prepare_images(request: PrepareImagesRequest) -> dict:
         "prepared_count": len(prepared),
         "prepared": prepared,
         "errors": errors,
-        "quality_gate": "attention" if limited else "ready_for_visual_review",
+        "quality_gate": "attention" if limited or enhancement_failures else "ready_for_visual_review",
         "limited_count": len(limited),
+        "enhanced_count": len(enhanced),
+        "enhancement_failure_count": len(enhancement_failures),
+        "enhancement_skipped_count": len(enhancement_skipped),
+        "enhancement_engine": "Real-ESRGAN NCNN Vulkan" if enhanced else None,
         "publication_blocked": True,
         "approval_required": True,
         "metadata_removed": all(item["metadata_removed"] for item in prepared),

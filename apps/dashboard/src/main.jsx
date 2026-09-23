@@ -168,12 +168,13 @@ function App() {
       update(3, "working", "Enquadrando o produto inteiro, ampliando e removendo metadados");
       const media = await request("/v1/media/prepare", {
         method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({product_id: product.id, size: 1600, quality: 96})
+        body: JSON.stringify({product_id: product.id, size: 1600, quality: 96, ai_enhance: false})
       });
       setMediaResult(media);
       const imageState = media.quality_gate === "attention" ? "attention" : "completed";
-      const imageMessage = media.prepared_count + " imagens em 1600×2053, sem recorte, metadados removidos" +
-        (media.limited_count ? `; ${media.limited_count} fonte(s) com resolução limitada — revisão obrigatória` : "; prontas para revisão visual");
+      const imageMessage = media.prepared_count + " imagens em 1600×2053, originais preservados, sem recorte e sem metadados" +
+        (media.enhanced_count ? `; ${media.enhanced_count} aprimorada(s) com Real-ESRGAN — compare original e resultado` : "") +
+        (media.limited_count ? `; ${media.limited_count} fonte(s) ainda limitada(s)` : "; prontas para revisão visual");
       update(3, imageState, imageMessage, {images: media.prepared});
 
       update(4, "working", "Lendo tamanho, grade e medidas na fonte");
