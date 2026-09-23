@@ -146,17 +146,9 @@ class AutoSizeChartRequest(BaseModel):
     product_id: str
 
 
-def prepare_one(url: str, target: Path, size: int, quality: int) -> dict:
-    with httpx.Client(
-        timeout=30,
-        follow_redirects=True,
-        trust_env=False,
-    ) as client:
-        response = client.get(url)
-    response.raise_for_status()
-    if len(response.content) > 20 * 1024 * 1024:
-        raise ValueError("Imagem excede 20 MB")
-    source = Image.open(io.BytesIO(response.content))
+def prepare_image(source: Image.Image, target: Path, size: int, quality: int) -> dict:
+    original_width, original_height = source.size
+    original_exif_fields = len(source.getexif())
     source = ImageOps.exif_transpose(source).convert("RGB")
     width = size
     height = round(size * 1540 / 1200)
@@ -176,19 +168,46 @@ def prepare_one(url: str, target: Path, size: int, quality: int) -> dict:
     left = (width - fitted.width) // 2
     top = (height - fitted.height) // 2
     canvas.paste(fitted, (left, top))
-    canvas.save(target, "JPEG", quality=quality, optimize=True, dpi=(72, 72))
+    canvas.save(target, "JPEG", quality=quality, optimize=True, dpi=(72, 72), exif=b"")
+    upscale_factor = round(max(fitted.width / original_width, fitted.height / original_height), 2)
+    warnings = []
+    if upscale_factor > 1.5:
+        warnings.append("A fonte exige ampliação acima de 1,5×; pixels novos não significam detalhes reais novos.")
+    if min(original_width, original_height) < 500:
+        warnings.append("A imagem original tem lado menor abaixo de 500 px.")
+    with Image.open(target) as saved:
+        metadata_removed = len(saved.getexif()) == 0
+        output_verified = saved.size == (width, height)
     return {
         "file": target.name,
         "width": width,
         "height": height,
         "bytes": target.stat().st_size,
-        "profile": f"fashion_portrait_{width}x{height}_safe_margin",
+        "profile": f"mercadolivre_fashion_{width}x{height}_safe_margin",
         "crop": "none",
+        "content_preserved": True,
         "safe_margin_percent": 4,
-        "source_width": source.width,
-        "source_height": source.height,
+        "source_width": original_width,
+        "source_height": original_height,
+        "upscale_factor": upscale_factor,
+        "metadata_removed": metadata_removed,
+        "original_metadata_fields": original_exif_fields,
+        "output_verified": output_verified,
+        "quality_state": "source_limited" if warnings else "ready_for_visual_review",
+        "warnings": warnings,
+        "visual_review_required": True,
         "source_limit": "Nenhum conteúdo fora da fotografia original pode ser recuperado sem geração artificial.",
     }
+
+
+def prepare_one(url: str, target: Path, size: int, quality: int) -> dict:
+    with httpx.Client(timeout=30, follow_redirects=True, trust_env=False) as client:
+        response = client.get(url)
+    response.raise_for_status()
+    if len(response.content) > 20 * 1024 * 1024:
+        raise ValueError("Imagem excede 20 MB")
+    with Image.open(io.BytesIO(response.content)) as source:
+        return prepare_image(source, target, size, quality)
 
 
 def chart_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -376,6 +395,7 @@ def prepare_images(request: PrepareImagesRequest) -> dict:
             errors.append({"source": url, "error": str(exc)[:200]})
     if not prepared:
         raise HTTPException(502, {"message": "Nenhuma imagem preparada", "errors": errors})
+    limited = [item for item in prepared if item["quality_state"] == "source_limited"]
     return {
         "product_id": request.product_id,
         "agent_id": "image-curator",
@@ -383,8 +403,12 @@ def prepare_images(request: PrepareImagesRequest) -> dict:
         "prepared_count": len(prepared),
         "prepared": prepared,
         "errors": errors,
+        "quality_gate": "attention" if limited else "ready_for_visual_review",
+        "limited_count": len(limited),
+        "publication_blocked": True,
         "approval_required": True,
-        "metadata_removed": True,
+        "metadata_removed": all(item["metadata_removed"] for item in prepared),
+        "content_policy": "sem recorte e sem geração de partes inexistentes",
         "color_profile": "sRGB-compatible RGB",
     }
 

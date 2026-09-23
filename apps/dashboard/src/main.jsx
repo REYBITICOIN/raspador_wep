@@ -171,7 +171,10 @@ function App() {
         body: JSON.stringify({product_id: product.id, size: 1600, quality: 96})
       });
       setMediaResult(media);
-      update(3, "completed", media.prepared_count + " imagens em 1600×2053, sem recorte adicional; limite: foto original do fornecedor", {images: media.prepared});
+      const imageState = media.quality_gate === "attention" ? "attention" : "completed";
+      const imageMessage = media.prepared_count + " imagens em 1600×2053, sem recorte, metadados removidos" +
+        (media.limited_count ? `; ${media.limited_count} fonte(s) com resolução limitada — revisão obrigatória` : "; prontas para revisão visual");
+      update(3, imageState, imageMessage, {images: media.prepared});
 
       update(4, "working", "Lendo tamanho, grade e medidas na fonte");
       const profile = await request("/v1/catalog/products/" + product.id + "/size-profile");
